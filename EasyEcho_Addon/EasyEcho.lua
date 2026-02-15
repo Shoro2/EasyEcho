@@ -124,7 +124,18 @@ end
 local currentRerolls = 0 
 local lastChoicesRef = nil 
 local isProcessing = false 
+local isAutoStopped = false
 local lastLoggedLevel = -1 -- Muss außerhalb der Funktion stehen, um sich den Level zu merken
+local pendingDeathReset = false
+local acceptDeathWatcher = CreateFrame("Frame")
+acceptDeathWatcher:Hide()
+acceptDeathWatcher.timer = 0
+acceptDeathWatcher.timeout = 0
+local hookedAcceptDeathButtons = {}
+local hookedStartButtons = {}
+local startButtonWatcher = CreateFrame("Frame")
+startButtonWatcher:Hide()
+startButtonWatcher.timer = 0
 local pickerFrame = CreateFrame("Frame")
 pickerFrame:Hide()
 pickerFrame.timer = 0
@@ -147,6 +158,47 @@ local function GetServerRunData()
         if data then return (data.usedRerolls or 0), (data.totalRerolls or 10) end
     end
     return 0, 10
+end
+
+local function SyncRerollStatus(overrideUsed, overrideTotal)
+    if not EasyEcho_UI or not EasyEcho_UI.UpdateRerollStatus then return end
+
+    if overrideUsed ~= nil and overrideTotal ~= nil then
+        EasyEcho_UI.UpdateRerollStatus(overrideUsed, overrideTotal)
+        return
+    end
+
+    local usedRerolls, totalRerolls = GetServerRunData()
+    EasyEcho_UI.UpdateRerollStatus(usedRerolls, totalRerolls)
+end
+
+local function SetAutoStopped(stopped, reason)
+    isAutoStopped = stopped and true or false
+
+    if isAutoStopped then
+        isProcessing = false
+        if pickerFrame then
+            pickerFrame.state = nil
+            pickerFrame.timer = 0
+            pickerFrame:Hide()
+        end
+        if reason and DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r " .. reason)
+        end
+    end
+end
+
+local function CheckAutoStopAtMaxLevel()
+    local lvl = UnitLevel("player") or 1
+    if lvl < 80 then return false end
+
+    local choices = ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.GetCurrentChoice and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
+    if not choices or #choices == 0 then
+        SetAutoStopped(true, "Level 80 reached and no echoes are available. EasyEcho stopped automatically.")
+        return true
+    end
+
+    return false
 end
 
 local function WriteToLog(msg)
@@ -298,6 +350,7 @@ local function HandleReroll(pickLevel, reason)
     if usedRerolls >= totalRerolls then return false end
 
     currentRerolls = currentRerolls + 1
+    SyncRerollStatus(usedRerolls + 1, totalRerolls)
     LogDecision("REROLL", "-", nil, reason, usedRerolls + 1, totalRerolls, false)
 
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestReroll then
@@ -328,11 +381,15 @@ local function SelectSpell(idx, name, quality, pickLevel, isPrio)
 end
 
 local function ProcessChoices()
-    if isProcessing then return end
+    if isAutoStopped or isProcessing then return end
     
     local pickLevel = EasyEchoSettings.CurrentPickCount
     local choices = ProjectEbonhold.PerkService.GetCurrentChoice()
-    if not choices then return end
+    if not choices then
+        CheckAutoStopAtMaxLevel()
+        return
+    end
+    SyncRerollStatus()
 
     -- LOGGING: Nur einmal pro Level in den Verlauf schreiben
     if lastLoggedLevel ~= pickLevel then
@@ -360,7 +417,12 @@ local function ProcessChoices()
         return
     end
 
-    -- 3. FALLBACK 2: Kein Treffer im Profil -> Links wählen
+    -- 3. Kein Match in der Prio-Liste -> aktiv rerollen, falls möglich
+    if HandleReroll(pickLevel, "No priority match") then
+        return
+    end
+
+    -- 4. FALLBACK 2: Kein Treffer im Profil & kein Reroll möglich -> Links wählen
     local finalName = GetSpellInfo(choices[1].spellId)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost.")
     SelectSpell(1, finalName, choices[1].quality, pickLevel, false)
@@ -390,25 +452,240 @@ pickerFrame:SetScript("OnUpdate", function(self, elapsed)
         local cur = ProjectEbonhold.PerkService.GetCurrentChoice()
         if cur and cur ~= lastChoicesRef then
             isProcessing, lastChoicesRef, self.state, self.timer = false, cur, "START_DELAY", 0
+        elseif (UnitLevel("player") or 1) >= 80 and not cur then
+            CheckAutoStopAtMaxLevel()
         end
+    end
+end)
+
+local function ResetRunState(reason)
+    currentRerolls = 0
+    isProcessing = false
+    lastChoicesRef = nil
+    lastLoggedLevel = -1
+
+    if pickerFrame then
+        pickerFrame.state = nil
+        pickerFrame.timer = 0
+        pickerFrame:Hide()
+    end
+
+    isAutoStopped = false
+
+    if EasyEcho_UI and EasyEcho_UI.ResetAllData then
+        EasyEcho_UI.ResetAllData(reason or "Run reset detected. Data has been cleared.")
+    else
+        EasyEchoHistoryDB, EasyEchoLogDB = {}, {}
+        if EasyEchoSettings then EasyEchoSettings.CurrentPickCount = 2 end
+    end
+end
+
+local function NormalizeUiText(text)
+    if type(text) ~= "string" then return "" end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+    text = text:gsub("|r", "")
+    return string.lower(text)
+end
+
+local function FrameHasAcceptDeathText(frame)
+    if not frame then return false end
+
+    if frame.GetText then
+        local txt = NormalizeUiText(frame:GetText())
+        if txt ~= "" and txt:find("accept", 1, true) and txt:find("death", 1, true) then
+            return true
+        end
+    end
+
+    if frame.GetRegions then
+        local regions = {frame:GetRegions()}
+        for _, region in ipairs(regions) do
+            if region and region.GetObjectType and region:GetObjectType() == "FontString" and region.GetText then
+                local txt = NormalizeUiText(region:GetText())
+                if txt ~= "" and txt:find("accept", 1, true) and txt:find("death", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    local name = frame.GetName and frame:GetName() or ""
+    name = string.lower(name or "")
+    if name:find("accept", 1, true) and name:find("death", 1, true) then
+        return true
+    end
+
+    return false
+end
+
+local function IsAcceptDeathButton(frame)
+    if not frame or frame.GetObjectType == nil then return false end
+    if frame:GetObjectType() ~= "Button" then return false end
+    return FrameHasAcceptDeathText(frame)
+end
+
+local function TryHookAcceptDeathButtons(root)
+    if not root or not root.GetChildren then return false end
+
+    local found = false
+    local children = {root:GetChildren()}
+    for _, child in ipairs(children) do
+        if IsAcceptDeathButton(child) and not hookedAcceptDeathButtons[child] then
+            hookedAcceptDeathButtons[child] = true
+            child:HookScript("OnClick", function()
+                if pendingDeathReset then
+                    pendingDeathReset = false
+                    ResetRunState("Accept Death selected. Data has been reset for a new run.")
+                end
+            end)
+            found = true
+        end
+
+        if TryHookAcceptDeathButtons(child) then
+            found = true
+        end
+    end
+
+    return found
+end
+
+local function TryRequestChoiceNow()
+    if isAutoStopped then return end
+    if not ProjectEbonhold or not ProjectEbonhold.PerkService or not ProjectEbonhold.PerkService.RequestChoice then return end
+
+    ProjectEbonhold.PerkService.RequestChoice()
+
+    local choices = ProjectEbonhold.PerkService.GetCurrentChoice and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
+    if choices and #choices > 0 and not isProcessing then
+        currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
+        pickerFrame:Show()
+    end
+end
+
+local function IsStartButton(frame)
+    if not frame or not frame.GetObjectType or frame:GetObjectType() ~= "Button" then return false end
+
+    local txt = ""
+    if frame.GetText then
+        txt = NormalizeUiText(frame:GetText())
+    end
+
+    local name = frame.GetName and NormalizeUiText(frame:GetName()) or ""
+
+    return txt == "start" or txt:find("start", 1, true) ~= nil or name:find("start", 1, true) ~= nil
+end
+
+local function TryHookStartButtons(root)
+    if not root or not root.GetChildren then return false end
+
+    local found = false
+    local children = {root:GetChildren()}
+    for _, child in ipairs(children) do
+        if IsStartButton(child) and not hookedStartButtons[child] then
+            hookedStartButtons[child] = true
+            child:HookScript("OnClick", function()
+                TryRequestChoiceNow()
+                startButtonWatcher.timer = 0
+                startButtonWatcher:Show()
+            end)
+            found = true
+        end
+
+        if TryHookStartButtons(child) then
+            found = true
+        end
+    end
+
+    return found
+end
+
+startButtonWatcher:SetScript("OnUpdate", function(self, elapsed)
+    self.timer = self.timer + elapsed
+    if self.timer >= 1.0 then
+        self:Hide()
+        TryRequestChoiceNow()
+    end
+end)
+
+acceptDeathWatcher:SetScript("OnUpdate", function(self, elapsed)
+    if not pendingDeathReset then
+        self:Hide()
+        return
+    end
+
+    self.timer = self.timer + elapsed
+    self.timeout = self.timeout + elapsed
+
+    if self.timer >= 0.2 then
+        self.timer = 0
+        TryHookAcceptDeathButtons(UIParent)
+    end
+
+    if self.timeout >= 15 then
+        pendingDeathReset = false
+        self:Hide()
     end
 end)
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:SetScript("OnEvent", function()
+eventFrame:RegisterEvent("PLAYER_DEAD")
+eventFrame:RegisterEvent("PLAYER_ALIVE")
+eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
+eventFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
 	InitializePrioList()
-    if not EasyEchoLogDB then EasyEchoLogDB = {} end
-    if not EasyEchoSettings then EasyEchoSettings = {} end
-    if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
-    if EasyEcho_UI then EasyEcho_UI.Init() end
-    
-    if ProjectEbonhold and ProjectEbonhold.PerkUI then
-        hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
-            if isProcessing then return end
-            currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
-            pickerFrame:Show()
-        end)
+        if not EasyEchoLogDB then EasyEchoLogDB = {} end
+        if not EasyEchoSettings then EasyEchoSettings = {} end
+        if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
+        if EasyEcho_UI then EasyEcho_UI.Init() end
+        SyncRerollStatus()
+        TryHookStartButtons(UIParent)
+        TryRequestChoiceNow()
+
+        if ProjectEbonhold and ProjectEbonhold.PerkUI then
+            hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
+                if isAutoStopped or isProcessing then return end
+                currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
+                SyncRerollStatus()
+                pickerFrame:Show()
+            end)
+        end
+        return
+    end
+
+    if event == "PLAYER_DEAD" then
+        pendingDeathReset = true
+        acceptDeathWatcher.timer = 0
+        acceptDeathWatcher.timeout = 0
+        TryHookAcceptDeathButtons(UIParent)
+        acceptDeathWatcher:Show()
+        return
+    end
+
+    if event == "PLAYER_LEVEL_UP" then
+        if EasyEcho_UI and EasyEcho_UI.UpdateEchoListUI and EasyEchoGrantedEchoesFrame and EasyEchoGrantedEchoesFrame:IsShown() then
+            EasyEcho_UI.UpdateEchoListUI()
+        end
+        CheckAutoStopAtMaxLevel()
+        return
+    end
+
+    if event == "PLAYER_ALIVE" then
+        if pendingDeathReset and (UnitLevel("player") or 1) <= 1 then
+            pendingDeathReset = false
+            ResetRunState("New run detected after death. Data has been reset.")
+        else
+            pendingDeathReset = false
+            acceptDeathWatcher:Hide()
+        end
+        SyncRerollStatus()
+        TryHookStartButtons(UIParent)
+        if (UnitLevel("player") or 1) < 80 then
+            isAutoStopped = false
+        else
+            CheckAutoStopAtMaxLevel()
+        end
     end
 end)
 
