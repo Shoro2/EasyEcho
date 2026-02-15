@@ -398,10 +398,19 @@ local function CreateHistoryFrame()
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -5, -5)
 
+    local startStopBtn = CreateFrame("Button", "EasyEchoHistoryStartStop", f, "UIPanelButtonTemplate")
+    startStopBtn:SetSize(80, 22)
+    startStopBtn:SetPoint("TOPLEFT", 12, -10)
+    startStopBtn:SetScript("OnClick", function()
+        EasyEcho_ToggleRunning()
+    end)
+    historyStartStopBtn = startStopBtn
+    UpdateButtonAppearance(startStopBtn)
+
     local clearBtn = CreateFrame("Button", "EasyEchoClearBtn", f, "UIPanelButtonTemplate")
     clearBtn:SetWidth(80)
     clearBtn:SetHeight(22)
-    clearBtn:SetPoint("TOPLEFT", 12, -10)
+    clearBtn:SetPoint("LEFT", startStopBtn, "RIGHT", 5, 0)
     clearBtn:SetText("Clear All")
     clearBtn:SetScript("OnClick", function()
         EasyEcho_UI.ResetAllData("Everything has been reset.")
@@ -638,6 +647,7 @@ end
 function EasyEcho_UI.Init()
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     CreateHistoryFrame()
+    CreateMiniStartStopButton()
     EasyEcho_UI.UpdateHistoryUI()
 end
 
@@ -654,16 +664,20 @@ SLASH_EASYECHO2 = "/ee"
 
 SlashCmdList["EASYECHO"] = function(msg)
     msg = string.lower(msg or "")
-    
+
     if msg == "config" then
-        -- Open Config window independently
         if EasyEcho_Config and EasyEcho_Config.Toggle then
             EasyEcho_Config.Toggle()
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EasyEcho]|r Error: Config module not loaded!")
         end
+    elseif msg == "start" then
+        EasyEcho_Start()
+    elseif msg == "stop" then
+        EasyEcho_Stop()
+    elseif msg == "toggle" then
+        EasyEcho_ToggleRunning()
     else
-        -- Default: Toggle History window
         EasyEcho_UI.Toggle()
     end
 end
