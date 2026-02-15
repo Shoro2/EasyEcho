@@ -32,6 +32,46 @@ local trackedSpell2Box = nil
 local liveUsedRerolls = 0
 local liveTotalRerolls = 10
 
+local historyStartStopBtn = nil
+local miniStartStopBtn = nil
+
+local function UpdateButtonAppearance(btn)
+    if not btn then return end
+
+    if EasyEcho_IsRunning then
+        btn:SetText("Stop")
+    else
+        btn:SetText("Start")
+    end
+end
+
+function EasyEcho_UI.UpdateStartStopButton()
+    UpdateButtonAppearance(historyStartStopBtn)
+    UpdateButtonAppearance(miniStartStopBtn)
+end
+
+local function CreateMiniStartStopButton()
+    if miniStartStopBtn then
+        return
+    end
+
+    local btn = CreateFrame("Button", "EasyEchoMiniStartStop", UIParent, "UIPanelButtonTemplate")
+    btn:SetSize(62, 20)
+    btn:SetPoint("TOP", UIParent, "TOP", 0, -120)
+    btn:SetMovable(true)
+    btn:EnableMouse(true)
+    btn:RegisterForDrag("LeftButton")
+    btn:SetScript("OnDragStart", btn.StartMoving)
+    btn:SetScript("OnDragStop", btn.StopMovingOrSizing)
+    btn:SetScript("OnClick", function()
+        EasyEcho_ToggleRunning()
+    end)
+
+    miniStartStopBtn = btn
+    UpdateButtonAppearance(btn)
+end
+
+
 local QUALITY_NAMES = {
     [0] = "Common",
     [1] = "Uncommon",
