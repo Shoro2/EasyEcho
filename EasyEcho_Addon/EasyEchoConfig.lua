@@ -234,7 +234,7 @@ end
 
 function EasyEcho_Config.CreateFrame()
     local f = CreateFrame("Frame", "EasyEchoConfigFrame", UIParent)
-    f:SetSize(620, 620) f:SetPoint("CENTER", 100, 0)
+    f:SetSize(700, 700) f:SetPoint("CENTER", 100, 0)
     f:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", tile=true, tileSize=32, edgeSize=32, insets={left=11, right=12, top=12, bottom=11}})
     f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving) f:SetScript("OnDragStop", f.StopMovingOrSizing)
@@ -242,6 +242,18 @@ function EasyEcho_Config.CreateFrame()
     local close = CreateFrame("Button", "EasyEchoConfigCloseButton", f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -5, -5)
     close:SetFrameLevel(f:GetFrameLevel() + 10)
+
+    local backBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    backBtn:SetSize(70, 20)
+    backBtn:SetPoint("RIGHT", close, "LEFT", -2, 0)
+    backBtn:SetText("Back")
+    backBtn:SetScript("OnClick", function()
+        if EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
+            EasyEcho_UI.ShowMainWindow()
+        else
+            f:Hide()
+        end
+    end)
 
     -- Tabs
     local pTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -255,7 +267,7 @@ function EasyEcho_Config.CreateFrame()
     prTab:SetScript("OnClick", function() currentView = "Profiles" EasyEcho_Config.Refresh() end)
 
     local searchBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    searchBox:SetSize(130, 20) searchBox:SetPoint("TOPLEFT", 450, -15)
+    searchBox:SetSize(130, 20) searchBox:SetPoint("TOPLEFT", 390, -15)
     searchBox:SetScript("OnTextChanged", function(s) searchText = s:GetText() EasyEcho_Config.Refresh() end)
 
     local sf = CreateFrame("ScrollFrame", "EasyEchoConfigScrollFrame", f, "UIPanelScrollFrameTemplate")
@@ -312,5 +324,12 @@ end
 
 function EasyEcho_Config.Toggle()
     if not configFrame then EasyEcho_Config.CreateFrame() end
-    if configFrame:IsShown() then configFrame:Hide() else EasyEcho_Config.Refresh() configFrame:Show() end
+    if configFrame:IsShown() then
+        configFrame:Hide()
+    else
+        if EasyEchoHistoryFrame and EasyEchoHistoryFrame:IsShown() then EasyEchoHistoryFrame:Hide() end
+        if EasyEchoGrantedEchoesFrame and EasyEchoGrantedEchoesFrame:IsShown() then EasyEchoGrantedEchoesFrame:Hide() end
+        EasyEcho_Config.Refresh()
+        configFrame:Show()
+    end
 end
