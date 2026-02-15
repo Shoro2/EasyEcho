@@ -44,21 +44,47 @@ local QUALITY_COLORS = {
 }
 
 local function GetGrantedEchoesSorted()
-    local granted = {}
+    local granted = nil
+
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.GetGrantedPerks then
-        granted = ProjectEbonhold.PerkService.GetGrantedPerks() or {}
+        granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+    end
+
+    if not granted and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.grantedPerks then
+        granted = ProjectEbonhold.Perks.grantedPerks
+    end
+
+    if type(granted) ~= "table" then
+        return {}
     end
 
     local entries = {}
-    for _, perk in ipairs(granted) do
+
+    local function AddPerk(perk)
+        if type(perk) ~= "table" then return end
         local spellId = perk.spellId
-        local name = spellId and GetSpellInfo(spellId) or nil
+        if not spellId then return end
+        local name = GetSpellInfo(spellId)
         table.insert(entries, {
             name = name or ("Spell " .. tostring(spellId or "?")),
             quality = perk.quality or 0,
             stack = perk.stack or 1,
             maxStack = perk.maxStack or 1
         })
+    end
+
+    if granted[1] then
+        for _, perk in ipairs(granted) do
+            AddPerk(perk)
+        end
+    else
+        for _, perkList in pairs(granted) do
+            if type(perkList) == "table" then
+                for _, perk in ipairs(perkList) do
+                    AddPerk(perk)
+                end
+            end
+        end
     end
 
     table.sort(entries, function(a, b)
@@ -119,6 +145,14 @@ local function CreateEchoesFrame()
 
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -5, -5)
+
+    local backBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    backBtn:SetSize(70, 20)
+    backBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
+    backBtn:SetText("Back")
+    backBtn:SetScript("OnClick", function()
+        EasyEcho_UI.ShowMainWindow()
+    end)
 
     f:Hide()
     echoesFrame = f
@@ -223,13 +257,9 @@ local function CreateHistoryFrame()
 	configBtn:SetPoint("TOPRIGHT", -35, -10)
 	configBtn:SetText("Config")
 	configBtn:SetScript("OnClick", function()
-		-- Sicherheitsabfrage für das Config-Modul
 		if EasyEcho_Config and EasyEcho_Config.Toggle then
-			-- Schließt das aktuelle Fenster (History), bevor die Config geöffnet wird
-			if historyFrame then 
-				historyFrame:Hide() 
-			end
-			-- Öffnet das Konfigurationsfenster
+			if historyFrame then historyFrame:Hide() end
+			if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
 			EasyEcho_Config.Toggle()
 		else
 			DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EasyEcho]|r Error: Config module not loaded!")
@@ -342,6 +372,10 @@ end
 function EasyEcho_UI.UpdateEchoListUI()
     if not echoesFrame then CreateEchoesFrame() end
 
+    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
+        ProjectEbonhold.PerkService.RequestGrantedPerks()
+    end
+
     for _, fs in ipairs(echoesFontPool) do fs:Hide() end
 
     local entries = GetGrantedEchoesSorted()
@@ -383,11 +417,27 @@ function EasyEcho_UI.UpdateEchoListUI()
     echoesScrollBar:SetValue(0)
 end
 
+function EasyEcho_UI.ShowMainWindow()
+    if not historyFrame then CreateHistoryFrame() end
+    if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
+
+    local config = _G["EasyEchoConfigFrame"]
+    if config and config:IsShown() then
+        config:Hide()
+    end
+
+    historyFrame:Show()
+    EasyEcho_UI.UpdateHistoryUI()
+end
+
 function EasyEcho_UI.ToggleEchoList()
     if not echoesFrame then CreateEchoesFrame() end
     if echoesFrame:IsShown() then
         echoesFrame:Hide()
     else
+        if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
+        local config = _G["EasyEchoConfigFrame"]
+        if config and config:IsShown() then config:Hide() end
         echoesFrame:Show()
         EasyEcho_UI.UpdateEchoListUI()
     end
