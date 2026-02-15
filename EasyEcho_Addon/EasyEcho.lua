@@ -750,18 +750,14 @@ local function TryHookStartButtons(root)
     local found = false
     local children = {root:GetChildren()}
     for _, child in ipairs(children) do
-        if IsStartButton(child) then
-            EnsureShowUiButton(child)
-
-            if not hookedStartButtons[child] then
-                hookedStartButtons[child] = true
-                child:HookScript("OnClick", function()
-                    TryRequestChoiceNow()
-                    startButtonWatcher.timer = 0
-                    startButtonWatcher:Show()
-                end)
-                found = true
-            end
+        if IsStartButton(child) and not hookedStartButtons[child] then
+            hookedStartButtons[child] = true
+            child:HookScript("OnClick", function()
+                TryRequestChoiceNow()
+                startButtonWatcher.timer = 0
+                startButtonWatcher:Show()
+            end)
+            found = true
         end
 
         if TryHookStartButtons(child) then
@@ -947,18 +943,14 @@ local function TryHookStartButtons(root)
     local found = false
     local children = {root:GetChildren()}
     for _, child in ipairs(children) do
-        if IsStartButton(child) then
-            EnsureShowUiButton(child)
-
-            if not hookedStartButtons[child] then
-                hookedStartButtons[child] = true
-                child:HookScript("OnClick", function()
-                    TryRequestChoiceNow()
-                    startButtonWatcher.timer = 0
-                    startButtonWatcher:Show()
-                end)
-                found = true
-            end
+        if IsStartButton(child) and not hookedStartButtons[child] then
+            hookedStartButtons[child] = true
+            child:HookScript("OnClick", function()
+                TryRequestChoiceNow()
+                startButtonWatcher.timer = 0
+                startButtonWatcher:Show()
+            end)
+            found = true
         end
 
         if TryHookStartButtons(child) then
@@ -1020,6 +1012,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
 
         if ProjectEbonhold and ProjectEbonhold.PerkUI then
             hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
+                if not EasyEcho_IsRunning then return end
                 if isAutoStopped or isProcessing then return end
                 currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
                 SyncRerollStatus()
