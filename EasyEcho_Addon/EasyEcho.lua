@@ -125,6 +125,12 @@ local currentRerolls = 0
 local lastChoicesRef = nil 
 local isProcessing = false 
 local lastLoggedLevel = -1 -- Muss außerhalb der Funktion stehen, um sich den Level zu merken
+local pendingDeathReset = false
+local acceptDeathWatcher = CreateFrame("Frame")
+acceptDeathWatcher:Hide()
+acceptDeathWatcher.timer = 0
+acceptDeathWatcher.timeout = 0
+local hookedAcceptDeathButtons = {}
 local pickerFrame = CreateFrame("Frame")
 pickerFrame:Hide()
 pickerFrame.timer = 0
@@ -360,7 +366,12 @@ local function ProcessChoices()
         return
     end
 
-    -- 3. FALLBACK 2: Kein Treffer im Profil -> Links wählen
+    -- 3. Kein Match in der Prio-Liste -> aktiv rerollen, falls möglich
+    if HandleReroll(pickLevel, "No priority match") then
+        return
+    end
+
+    -- 4. FALLBACK 2: Kein Treffer im Profil & kein Reroll möglich -> Links wählen
     local finalName = GetSpellInfo(choices[1].spellId)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost.")
     SelectSpell(1, finalName, choices[1].quality, pickLevel, false)
@@ -394,21 +405,109 @@ pickerFrame:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
+local function ResetRunState(reason)
+    currentRerolls = 0
+    isProcessing = false
+    lastChoicesRef = nil
+    lastLoggedLevel = -1
+
+    if pickerFrame then
+        pickerFrame.state = nil
+        pickerFrame.timer = 0
+        pickerFrame:Hide()
+    end
+
+    if EasyEcho_UI and EasyEcho_UI.ResetAllData then
+        EasyEcho_UI.ResetAllData(reason or "Run reset detected. Data has been cleared.")
+    else
+        EasyEchoHistoryDB, EasyEchoLogDB = {}, {}
+        if EasyEchoSettings then EasyEchoSettings.CurrentPickCount = 2 end
+    end
+end
+
+local function IsAcceptDeathButton(frame)
+    if not frame or frame.GetObjectType == nil then return false end
+    if frame:GetObjectType() ~= "Button" then return false end
+    if not frame.GetText then return false end
+
+    local text = frame:GetText()
+    if type(text) ~= "string" then return false end
+
+    return string.find(string.lower(text), "accept death", 1, true) ~= nil
+end
+
+local function TryHookAcceptDeathButtons(root)
+    if not root or not root.GetChildren then return false end
+
+    local found = false
+    local children = {root:GetChildren()}
+    for _, child in ipairs(children) do
+        if IsAcceptDeathButton(child) and not hookedAcceptDeathButtons[child] then
+            hookedAcceptDeathButtons[child] = true
+            child:HookScript("OnClick", function()
+                if pendingDeathReset then
+                    pendingDeathReset = false
+                    ResetRunState("Accept Death selected. Data has been reset for a new run.")
+                end
+            end)
+            found = true
+        end
+
+        if TryHookAcceptDeathButtons(child) then
+            found = true
+        end
+    end
+
+    return found
+end
+
+acceptDeathWatcher:SetScript("OnUpdate", function(self, elapsed)
+    if not pendingDeathReset then
+        self:Hide()
+        return
+    end
+
+    self.timer = self.timer + elapsed
+    self.timeout = self.timeout + elapsed
+
+    if self.timer >= 0.2 then
+        self.timer = 0
+        TryHookAcceptDeathButtons(UIParent)
+    end
+
+    if self.timeout >= 15 then
+        pendingDeathReset = false
+        self:Hide()
+    end
+end)
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:SetScript("OnEvent", function()
+eventFrame:RegisterEvent("PLAYER_DEAD")
+eventFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" then
 	InitializePrioList()
-    if not EasyEchoLogDB then EasyEchoLogDB = {} end
-    if not EasyEchoSettings then EasyEchoSettings = {} end
-    if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
-    if EasyEcho_UI then EasyEcho_UI.Init() end
-    
-    if ProjectEbonhold and ProjectEbonhold.PerkUI then
-        hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
-            if isProcessing then return end
-            currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
-            pickerFrame:Show()
-        end)
+        if not EasyEchoLogDB then EasyEchoLogDB = {} end
+        if not EasyEchoSettings then EasyEchoSettings = {} end
+        if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
+        if EasyEcho_UI then EasyEcho_UI.Init() end
+
+        if ProjectEbonhold and ProjectEbonhold.PerkUI then
+            hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
+                if isProcessing then return end
+                currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
+                pickerFrame:Show()
+            end)
+        end
+        return
+    end
+
+    if event == "PLAYER_DEAD" then
+        pendingDeathReset = true
+        acceptDeathWatcher.timer = 0
+        acceptDeathWatcher.timeout = 0
+        TryHookAcceptDeathButtons(UIParent)
+        acceptDeathWatcher:Show()
     end
 end)
 
