@@ -119,6 +119,35 @@ function EasyEcho_SwitchProfile(profileName)
 end
 
 -- =========================================================
+-- START / STOP STATE
+-- =========================================================
+EasyEcho_IsRunning = false
+
+function EasyEcho_Start()
+    EasyEcho_IsRunning = true
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Bot |cff00ff00STARTED|r – auto-selecting perks.")
+    if EasyEcho_UI and EasyEcho_UI.UpdateStartStopButton then
+        EasyEcho_UI.UpdateStartStopButton()
+    end
+end
+
+function EasyEcho_Stop()
+    EasyEcho_IsRunning = false
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Bot |cffff4444STOPPED|r – manual mode.")
+    if EasyEcho_UI and EasyEcho_UI.UpdateStartStopButton then
+        EasyEcho_UI.UpdateStartStopButton()
+    end
+end
+
+function EasyEcho_ToggleRunning()
+    if EasyEcho_IsRunning then
+        EasyEcho_Stop()
+    else
+        EasyEcho_Start()
+    end
+end
+
+-- =========================================================
 -- SYSTEM
 -- =========================================================
 local currentRerolls = 0 
@@ -456,6 +485,121 @@ pickerFrame:SetScript("OnUpdate", function(self, elapsed)
         elseif (UnitLevel("player") or 1) >= 80 and not cur then
             CheckAutoStopAtMaxLevel()
         end
+    end
+
+    local name = frame.GetName and frame:GetName() or ""
+    name = string.lower(name or "")
+    if name:find("accept", 1, true) and name:find("death", 1, true) then
+        return true
+    end
+
+    return false
+end
+
+local function IsAcceptDeathButton(frame)
+    if not frame or frame.GetObjectType == nil then return false end
+    if frame:GetObjectType() ~= "Button" then return false end
+    return FrameHasAcceptDeathText(frame)
+end
+
+local function TryHookAcceptDeathButtons(root)
+    if not root or not root.GetChildren then return false end
+
+    local found = false
+    local children = {root:GetChildren()}
+    for _, child in ipairs(children) do
+        if IsAcceptDeathButton(child) and not hookedAcceptDeathButtons[child] then
+            hookedAcceptDeathButtons[child] = true
+            child:HookScript("OnClick", function()
+                if pendingDeathReset then
+                    pendingDeathReset = false
+                    ResetRunState("Accept Death selected. Data has been reset for a new run.")
+                end
+            end)
+            found = true
+        end
+
+        if TryHookAcceptDeathButtons(child) then
+            found = true
+        end
+    end
+
+    return found
+end
+
+local function TryRequestChoiceNow()
+    if not ProjectEbonhold or not ProjectEbonhold.PerkService or not ProjectEbonhold.PerkService.RequestChoice then return end
+    ProjectEbonhold.PerkService.RequestChoice()
+
+    local choices = ProjectEbonhold.PerkService.GetCurrentChoice and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
+    if choices and #choices > 0 and not isProcessing then
+        currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
+        pickerFrame:Show()
+    end
+end
+
+local function IsStartButton(frame)
+    if not frame or not frame.GetObjectType or frame:GetObjectType() ~= "Button" then return false end
+
+    local txt = ""
+    if frame.GetText then
+        txt = NormalizeUiText(frame:GetText())
+    end
+
+    local name = frame.GetName and NormalizeUiText(frame:GetName()) or ""
+
+    return txt == "start" or txt:find("start", 1, true) ~= nil or name:find("start", 1, true) ~= nil
+end
+
+local function TryHookStartButtons(root)
+    if not root or not root.GetChildren then return false end
+
+    local found = false
+    local children = {root:GetChildren()}
+    for _, child in ipairs(children) do
+        if IsStartButton(child) and not hookedStartButtons[child] then
+            hookedStartButtons[child] = true
+            child:HookScript("OnClick", function()
+                TryRequestChoiceNow()
+                startButtonWatcher.timer = 0
+                startButtonWatcher:Show()
+            end)
+            found = true
+        end
+
+        if TryHookStartButtons(child) then
+            found = true
+        end
+    end
+
+    return found
+end
+
+startButtonWatcher:SetScript("OnUpdate", function(self, elapsed)
+    self.timer = self.timer + elapsed
+    if self.timer >= 1.0 then
+        self:Hide()
+        TryRequestChoiceNow()
+    end
+end)
+
+acceptDeathWatcher:SetScript("OnUpdate", function(self, elapsed)
+    if not pendingDeathReset then
+        self:Hide()
+        return
+    end
+
+    self.timer = self.timer + elapsed
+    self.timeout = self.timeout + elapsed
+
+    if self.timer >= 0.2 then
+        self.timer = 0
+        TryHookAcceptDeathButtons(UIParent)
+    end
+
+    if self.timeout >= 15 then
+        pendingDeathReset = false
+        self:Hide()
     end
 end)
 
