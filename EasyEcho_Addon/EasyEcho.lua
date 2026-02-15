@@ -360,7 +360,12 @@ local function ProcessChoices()
         return
     end
 
-    -- 3. FALLBACK 2: Kein Treffer im Profil -> Links wählen
+    -- 3. Kein Match in der Prio-Liste -> aktiv rerollen, falls möglich
+    if HandleReroll(pickLevel, "No priority match") then
+        return
+    end
+
+    -- 4. FALLBACK 2: Kein Treffer im Profil & kein Reroll möglich -> Links wählen
     local finalName = GetSpellInfo(choices[1].spellId)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost.")
     SelectSpell(1, finalName, choices[1].quality, pickLevel, false)
