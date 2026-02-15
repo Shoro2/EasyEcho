@@ -133,6 +133,12 @@ end
 
 function EasyEcho_Stop()
     EasyEcho_IsRunning = false
+    isProcessing = false
+    if pickerFrame then
+        pickerFrame.state = nil
+        pickerFrame.timer = 0
+        pickerFrame:Hide()
+    end
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Bot |cffff4444STOPPED|r – manual mode.")
     if EasyEcho_UI and EasyEcho_UI.UpdateStartStopButton then
         EasyEcho_UI.UpdateStartStopButton()
@@ -411,7 +417,7 @@ local function SelectSpell(idx, name, quality, pickLevel, isPrio)
 end
 
 local function ProcessChoices()
-    if isAutoStopped or isProcessing then return end
+    if not EasyEcho_IsRunning or isAutoStopped or isProcessing then return end
     
     local pickLevel = EasyEchoSettings.CurrentPickCount
     local choices = ProjectEbonhold.PerkService.GetCurrentChoice()
@@ -462,6 +468,13 @@ end
 -- INIT & TIMER
 -- =========================================================
 pickerFrame:SetScript("OnUpdate", function(self, elapsed)
+    if not EasyEcho_IsRunning then
+        self.state = nil
+        self.timer = 0
+        self:Hide()
+        return
+    end
+
     self.timer = self.timer + elapsed
     if self.state == "START_DELAY" and self.timer > DELAY_TIME then
         self.state = "PROCESSING"
@@ -703,10 +716,9 @@ end
 local function EnsureShowUiButton(startButton)
     if not startButton or showUiButtonsByStart[startButton] then return end
 
-    local parent = startButton:GetParent() or UIParent
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local btn = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
     btn:SetSize(startButton:GetWidth() or 180, 24)
-    btn:SetPoint("TOP", startButton, "BOTTOM", 0, -6)
+    btn:SetPoint("TOP", UIParent, "TOP", 75, -2)
     btn:SetText("Show UI")
     btn:SetScript("OnClick", function()
         if EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
@@ -880,6 +892,7 @@ local function TryHookAcceptDeathButtons(root)
 end
 
 local function TryRequestChoiceNow()
+    if not EasyEcho_IsRunning then return end
     if isAutoStopped then return end
     if not ProjectEbonhold or not ProjectEbonhold.PerkService then return end
 
@@ -900,10 +913,9 @@ end
 local function EnsureShowUiButton(startButton)
     if not startButton or showUiButtonsByStart[startButton] then return end
 
-    local parent = startButton:GetParent() or UIParent
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local btn = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
     btn:SetSize(startButton:GetWidth() or 180, 24)
-    btn:SetPoint("TOP", startButton, "BOTTOM", 0, -6)
+    btn:SetPoint("TOP", UIParent, "TOP", 75, -2)
     btn:SetText("Show UI")
     btn:SetScript("OnClick", function()
         if EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
@@ -958,6 +970,11 @@ local function TryHookStartButtons(root)
 end
 
 startButtonWatcher:SetScript("OnUpdate", function(self, elapsed)
+    if not EasyEcho_IsRunning then
+        self:Hide()
+        return
+    end
+
     self.timer = self.timer + elapsed
     if self.timer >= 1.0 then
         self:Hide()
