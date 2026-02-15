@@ -96,12 +96,71 @@ local QUALITY_NAMES = {
 }
 
 local QUALITY_COLORS = {
-    [0] = "ffffffff", 
-    [1] = "ff1eff00", 
-    [2] = "ff0070dd", 
+    [0] = "ffffffff",
+    [1] = "ff1eff00",
+    [2] = "ff0070dd",
     [3] = "ffa335ee",
-    [4] = "ffff8000"  
+    [4] = "ffff8000"
 }
+
+-- =========================================================
+-- ECHO DATABASE - Persistent catalog of all discovered echoes
+-- =========================================================
+local scanTooltip = CreateFrame("GameTooltip", "EasyEchoScanTooltip", nil, "GameTooltipTemplate")
+scanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
+
+local function GetSpellTooltipText(spellId)
+    if not spellId then return "" end
+    scanTooltip:ClearLines()
+    scanTooltip:SetHyperlink("spell:" .. spellId)
+    local lines = {}
+    for i = 2, scanTooltip:NumLines() do
+        local line = _G["EasyEchoScanTooltipTextLeft" .. i]
+        if line then
+            local text = line:GetText()
+            if text and text ~= "" then
+                table.insert(lines, text)
+            end
+        end
+    end
+    return table.concat(lines, "\n")
+end
+
+function EasyEcho_RecordEcho(spellId, quality)
+    if not spellId then return end
+    if not EasyEchoEchoDB then EasyEchoEchoDB = {} end
+
+    local name = GetSpellInfo(spellId)
+    if not name or name == "" then return end
+
+    local key = string.lower(name)
+    local qualityName = QUALITY_NAMES[quality] or "Common"
+    local _, playerClass = UnitClass("player")
+
+    if not EasyEchoEchoDB[key] then
+        -- New echo discovered
+        local tooltip = GetSpellTooltipText(spellId)
+        EasyEchoEchoDB[key] = {
+            name = name,
+            tooltip = tooltip,
+            class = playerClass or "UNKNOWN",
+            qualities = {},
+            firstSeen = time(),
+            lastSeen = time()
+        }
+    end
+
+    -- Record this quality if not yet seen
+    if not EasyEchoEchoDB[key].qualities[qualityName] then
+        EasyEchoEchoDB[key].qualities[qualityName] = true
+    end
+    EasyEchoEchoDB[key].lastSeen = time()
+
+    -- Update tooltip if it was empty before
+    if (not EasyEchoEchoDB[key].tooltip or EasyEchoEchoDB[key].tooltip == "") then
+        EasyEchoEchoDB[key].tooltip = GetSpellTooltipText(spellId)
+    end
+end
 
 local function GetTrackedSpellNames()
     if not EasyEchoSettings then EasyEchoSettings = {} end
@@ -412,20 +471,20 @@ local function CreateHistoryFrame()
     local trackedOne, trackedTwo = GetTrackedSpellNames()
 
     trackedSpell1Box = CreateFrame("EditBox", "EasyEchoTrackedSpell1", f, "InputBoxTemplate")
-    trackedSpell1Box:SetSize(165, 18)
-    trackedSpell1Box:SetPoint("TOPLEFT", 85, -46)
+    trackedSpell1Box:SetSize(155, 18)
+    trackedSpell1Box:SetPoint("TOPLEFT", 145, -46)
     trackedSpell1Box:SetAutoFocus(false)
     trackedSpell1Box:SetText(trackedOne)
 
     trackedSpell2Box = CreateFrame("EditBox", "EasyEchoTrackedSpell2", f, "InputBoxTemplate")
-    trackedSpell2Box:SetSize(165, 18)
-    trackedSpell2Box:SetPoint("TOPLEFT", 365, -46)
+    trackedSpell2Box:SetSize(155, 18)
+    trackedSpell2Box:SetPoint("TOPLEFT", 435, -46)
     trackedSpell2Box:SetAutoFocus(false)
     trackedSpell2Box:SetText(trackedTwo)
 
     local applyTrackedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     applyTrackedBtn:SetSize(55, 18)
-    applyTrackedBtn:SetPoint("TOPLEFT", 535, -46)
+    applyTrackedBtn:SetPoint("TOPLEFT", 600, -46)
     applyTrackedBtn:SetText("Apply")
     applyTrackedBtn:SetScript("OnClick", function()
         SaveTrackedSpellNames(trackedSpell1Box:GetText(), trackedSpell2Box:GetText())
@@ -569,23 +628,40 @@ function EasyEcho_UI.AddSelectToHistory(name, quality, levelCount, isPrio)
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     table.insert(EasyEchoHistoryDB, {type="SELECT", name=name, quality=quality, level=levelCount, isPrio=isPrio, timestamp=time()})
     EasyEcho_UI.UpdateHistoryUI()
+
+    -- Record selected echo to persistent database
+    if name and ProjectEbonhold and ProjectEbonhold.PerkService then
+        local choices = ProjectEbonhold.PerkService.GetCurrentChoice and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
+        if choices then
+            for _, choice in ipairs(choices) do
+                local cName = GetSpellInfo(choice.spellId)
+                if cName and string.lower(cName) == string.lower(name) then
+                    EasyEcho_RecordEcho(choice.spellId, quality)
+                    break
+                end
+            end
+        end
+    end
 end
 
 function EasyEcho_UI.AddOptionsToHistory(choices, levelCount)
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
-    
+
     -- Verhindert doppelte Einträge für denselben Level im UI
     local lastEntry = EasyEchoHistoryDB[#EasyEchoHistoryDB]
     if lastEntry and lastEntry.type == "OPTIONS" and lastEntry.level == levelCount then
-        return 
+        return
     end
 
     local optString = ""
     for i, choice in ipairs(choices) do
         optString = optString .. (GetSpellInfo(choice.spellId) or "?") .. "(" .. string.sub(QUALITY_NAMES[choice.quality] or "C", 1, 1) .. ")"
         if i < #choices then optString = optString .. ", " end
+
+        -- Record each offered echo to persistent database
+        EasyEcho_RecordEcho(choice.spellId, choice.quality)
     end
-    
+
     table.insert(EasyEchoHistoryDB, {type="OPTIONS", text=optString, level=levelCount, timestamp=time()})
     EasyEcho_UI.UpdateHistoryUI()
 end
@@ -630,6 +706,41 @@ function EasyEcho_UI.UpdateEchoListUI()
 
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
         ProjectEbonhold.PerkService.RequestGrantedPerks()
+    end
+
+    -- Record all granted/locked perks to persistent echo database
+    local function RecordGrantedPerks(container)
+        if type(container) ~= "table" then return end
+        if container[1] then
+            for _, perk in ipairs(container) do
+                if type(perk) == "table" and perk.spellId then
+                    EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
+                end
+            end
+        else
+            for _, perkList in pairs(container) do
+                if type(perkList) == "table" then
+                    for _, perk in ipairs(perkList) do
+                        if type(perk) == "table" and perk.spellId then
+                            EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then
+            RecordGrantedPerks(ProjectEbonhold.PerkService.GetGrantedPerks())
+        end
+        if ProjectEbonhold.PerkService.GetLockedPerks then
+            RecordGrantedPerks(ProjectEbonhold.PerkService.GetLockedPerks())
+        end
+    end
+    if ProjectEbonhold and ProjectEbonhold.Perks then
+        if ProjectEbonhold.Perks.grantedPerks then RecordGrantedPerks(ProjectEbonhold.Perks.grantedPerks) end
+        if ProjectEbonhold.Perks.lockedPerks then RecordGrantedPerks(ProjectEbonhold.Perks.lockedPerks) end
     end
 
     for _, fs in ipairs(echoesFontPool) do fs:Hide() end
