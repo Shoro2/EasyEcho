@@ -124,6 +124,7 @@ end
 local currentRerolls = 0 
 local lastChoicesRef = nil 
 local isProcessing = false 
+local lastLoggedLevel = -1 -- Muss außerhalb der Funktion stehen, um sich den Level zu merken
 local pickerFrame = CreateFrame("Frame")
 pickerFrame:Hide()
 pickerFrame.timer = 0
@@ -258,7 +259,7 @@ local function ProcessChoices()
     local choices = ProjectEbonhold.PerkService.GetCurrentChoice()
     if not choices then return end
 
-    -- LOGGING: Nur einmal pro Level loggen
+    -- LOGGING: Nur einmal pro Level in den Verlauf schreiben
     if lastLoggedLevel ~= pickLevel then
         if EasyEcho_UI then 
             EasyEcho_UI.AddOptionsToHistory(choices, pickLevel)
@@ -266,37 +267,27 @@ local function ProcessChoices()
         lastLoggedLevel = pickLevel
     end
 
-    -- 1. Check Priority List
+    -- 1. Prüfe Prioritäten-Liste (Dein aktives Profil)
     local mSpell, mQual, mIdx = CheckPriority(choices)
     if mSpell then
         SelectSpell(mIdx, mSpell, mQual, pickLevel, true)
         return
     end
 
-    -- 2. Check One-Time Spells
-    local otSpell, otQual, otIdx = CheckOneTime(choices)
-    if otSpell then
-        SelectSpell(otIdx, otSpell, otQual, pickLevel, false)
-        return
-    end
-
-    -- 3. Check Banned List & Reroll
+    -- 2. Prüfe Ban-Liste & Reroll
     local allBanned, bannedNames = CheckBanned(choices)
     if allBanned then
-        local didReroll = HandleReroll(pickLevel, "All spells banned: " .. bannedNames)
-        if didReroll then return end
+        if HandleReroll(pickLevel, "All banned: " .. bannedNames) then return end
         
-        -- Fallback: Wenn alle banned sind aber kein Reroll möglich -> Nimm den linken!
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No Rerolls left. Picking leftmost banned spell to continue.")
-        local fallbackName = GetSpellInfo(choices[1].spellId)
-        SelectSpell(1, fallbackName, choices[1].quality, pickLevel, false)
+        -- FALLBACK 1: Alles verboten & kein Reroll -> Links wählen
+        local fName = GetSpellInfo(choices[1].spellId)
+        SelectSpell(1, fName, choices[1].quality, pickLevel, false)
         return
     end
 
-    -- 4. FINAL FALLBACK: Kein Treffer im Profil & nicht alles banned
-    -- Hier nimmt der Bot nun den ganz linken Spell (Index 1)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost spell.")
+    -- 3. FALLBACK 2: Kein Treffer im Profil -> Links wählen
     local finalName = GetSpellInfo(choices[1].spellId)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost.")
     SelectSpell(1, finalName, choices[1].quality, pickLevel, false)
 end
 

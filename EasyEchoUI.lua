@@ -221,7 +221,7 @@ end
 function EasyEcho_UI.AddOptionsToHistory(choices, levelCount)
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     
-    -- Verhindert, dass derselbe Level mehrfach im UI auftaucht
+    -- Verhindert doppelte Einträge für denselben Level im UI
     local lastEntry = EasyEchoHistoryDB[#EasyEchoHistoryDB]
     if lastEntry and lastEntry.type == "OPTIONS" and lastEntry.level == levelCount then
         return 
