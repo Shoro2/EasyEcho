@@ -155,6 +155,18 @@ local function GetServerRunData()
     return 0, 10
 end
 
+local function SyncRerollStatus(overrideUsed, overrideTotal)
+    if not EasyEcho_UI or not EasyEcho_UI.UpdateRerollStatus then return end
+
+    if overrideUsed ~= nil and overrideTotal ~= nil then
+        EasyEcho_UI.UpdateRerollStatus(overrideUsed, overrideTotal)
+        return
+    end
+
+    local usedRerolls, totalRerolls = GetServerRunData()
+    EasyEcho_UI.UpdateRerollStatus(usedRerolls, totalRerolls)
+end
+
 local function WriteToLog(msg)
     local timestamp = date("%m/%d/%y %H:%M:%S")
     local entry = string.format("[%s] %s", timestamp, msg)
@@ -304,6 +316,7 @@ local function HandleReroll(pickLevel, reason)
     if usedRerolls >= totalRerolls then return false end
 
     currentRerolls = currentRerolls + 1
+    SyncRerollStatus(usedRerolls + 1, totalRerolls)
     LogDecision("REROLL", "-", nil, reason, usedRerolls + 1, totalRerolls, false)
 
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestReroll then
@@ -339,6 +352,7 @@ local function ProcessChoices()
     local pickLevel = EasyEchoSettings.CurrentPickCount
     local choices = ProjectEbonhold.PerkService.GetCurrentChoice()
     if not choices then return end
+    SyncRerollStatus()
 
     -- LOGGING: Nur einmal pro Level in den Verlauf schreiben
     if lastLoggedLevel ~= pickLevel then
@@ -425,15 +439,48 @@ local function ResetRunState(reason)
     end
 end
 
+local function NormalizeUiText(text)
+    if type(text) ~= "string" then return "" end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+    text = text:gsub("|r", "")
+    return string.lower(text)
+end
+
+local function FrameHasAcceptDeathText(frame)
+    if not frame then return false end
+
+    if frame.GetText then
+        local txt = NormalizeUiText(frame:GetText())
+        if txt ~= "" and txt:find("accept", 1, true) and txt:find("death", 1, true) then
+            return true
+        end
+    end
+
+    if frame.GetRegions then
+        local regions = {frame:GetRegions()}
+        for _, region in ipairs(regions) do
+            if region and region.GetObjectType and region:GetObjectType() == "FontString" and region.GetText then
+                local txt = NormalizeUiText(region:GetText())
+                if txt ~= "" and txt:find("accept", 1, true) and txt:find("death", 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+
+    local name = frame.GetName and frame:GetName() or ""
+    name = string.lower(name or "")
+    if name:find("accept", 1, true) and name:find("death", 1, true) then
+        return true
+    end
+
+    return false
+end
+
 local function IsAcceptDeathButton(frame)
     if not frame or frame.GetObjectType == nil then return false end
     if frame:GetObjectType() ~= "Button" then return false end
-    if not frame.GetText then return false end
-
-    local text = frame:GetText()
-    if type(text) ~= "string" then return false end
-
-    return string.find(string.lower(text), "accept death", 1, true) ~= nil
+    return FrameHasAcceptDeathText(frame)
 end
 
 local function TryHookAcceptDeathButtons(root)
@@ -484,6 +531,7 @@ end)
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_DEAD")
+eventFrame:RegisterEvent("PLAYER_ALIVE")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
 	InitializePrioList()
@@ -491,11 +539,13 @@ eventFrame:SetScript("OnEvent", function(_, event)
         if not EasyEchoSettings then EasyEchoSettings = {} end
         if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
         if EasyEcho_UI then EasyEcho_UI.Init() end
+        SyncRerollStatus()
 
         if ProjectEbonhold and ProjectEbonhold.PerkUI then
             hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
                 if isProcessing then return end
                 currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
+                SyncRerollStatus()
                 pickerFrame:Show()
             end)
         end
@@ -508,6 +558,18 @@ eventFrame:SetScript("OnEvent", function(_, event)
         acceptDeathWatcher.timeout = 0
         TryHookAcceptDeathButtons(UIParent)
         acceptDeathWatcher:Show()
+        return
+    end
+
+    if event == "PLAYER_ALIVE" then
+        if pendingDeathReset and (UnitLevel("player") or 1) <= 1 then
+            pendingDeathReset = false
+            ResetRunState("New run detected after death. Data has been reset.")
+        else
+            pendingDeathReset = false
+            acceptDeathWatcher:Hide()
+        end
+        SyncRerollStatus()
     end
 end)
 
