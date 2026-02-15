@@ -9,9 +9,6 @@ local historyContent = nil
 local scrollBar = nil
 local fontStringPool = {} 
 
-local miniStartStopBtn = nil
-local historyStartStopBtn = nil
-
 local echoesFrame = nil
 local echoesContent = nil
 local echoesScrollBar = nil
@@ -29,6 +26,8 @@ local statEpicsPrio = nil
 local statEpicsOther = nil 
 local statRares = nil
 local statRerollsLeft = nil
+local trackedSpell1Box = nil
+local trackedSpell2Box = nil
 
 local liveUsedRerolls = 0
 local liveTotalRerolls = 10
@@ -48,6 +47,23 @@ local QUALITY_COLORS = {
     [3] = "ffa335ee",
     [4] = "ffff8000"  
 }
+
+local function GetTrackedSpellNames()
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    if not EasyEchoSettings.TrackedSpellOne or EasyEchoSettings.TrackedSpellOne == "" then
+        EasyEchoSettings.TrackedSpellOne = "Rend the Weak"
+    end
+    if not EasyEchoSettings.TrackedSpellTwo or EasyEchoSettings.TrackedSpellTwo == "" then
+        EasyEchoSettings.TrackedSpellTwo = "Double Strike"
+    end
+    return EasyEchoSettings.TrackedSpellOne, EasyEchoSettings.TrackedSpellTwo
+end
+
+local function SaveTrackedSpellNames(spellOne, spellTwo)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    if spellOne and spellOne ~= "" then EasyEchoSettings.TrackedSpellOne = spellOne end
+    if spellTwo and spellTwo ~= "" then EasyEchoSettings.TrackedSpellTwo = spellTwo end
+end
 
 local function GetPrioRank(name, quality)
     if not name or not EasyEchoSettings or not EasyEchoSettings.PriorityList then return 99999 end
@@ -278,17 +294,6 @@ local function CreateEchoesFrame()
     echoesFrame = f
 end
 
-local function UpdateButtonAppearance(btn)
-    if not btn then return end
-    if EasyEcho_IsRunning then
-        btn:SetText("Stop")
-        btn:GetNormalTexture():SetVertexColor(0.8, 0.2, 0.2) -- red tint
-    else
-        btn:SetText("Start")
-        btn:GetNormalTexture():SetVertexColor(0.2, 0.8, 0.2) -- green tint
-    end
-end
-
 local function CreateHistoryFrame()
     local f = CreateFrame("Frame", "EasyEchoHistoryFrame", UIParent)
     f:SetWidth(700)
@@ -348,6 +353,29 @@ local function CreateHistoryFrame()
     statRerollsLeft = CreateStatLabel(f, 300, -85, 250)
     statRerollsLeft:SetTextColor(1, 0.5, 0)
     statRerollsLeft:SetText("Rerolls Left: 10")
+
+    local trackedOne, trackedTwo = GetTrackedSpellNames()
+
+    trackedSpell1Box = CreateFrame("EditBox", "EasyEchoTrackedSpell1", f, "InputBoxTemplate")
+    trackedSpell1Box:SetSize(165, 18)
+    trackedSpell1Box:SetPoint("TOPLEFT", 85, -46)
+    trackedSpell1Box:SetAutoFocus(false)
+    trackedSpell1Box:SetText(trackedOne)
+
+    trackedSpell2Box = CreateFrame("EditBox", "EasyEchoTrackedSpell2", f, "InputBoxTemplate")
+    trackedSpell2Box:SetSize(165, 18)
+    trackedSpell2Box:SetPoint("TOPLEFT", 365, -46)
+    trackedSpell2Box:SetAutoFocus(false)
+    trackedSpell2Box:SetText(trackedTwo)
+
+    local applyTrackedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    applyTrackedBtn:SetSize(55, 18)
+    applyTrackedBtn:SetPoint("TOPLEFT", 535, -46)
+    applyTrackedBtn:SetText("Apply")
+    applyTrackedBtn:SetScript("OnClick", function()
+        SaveTrackedSpellNames(trackedSpell1Box:GetText(), trackedSpell2Box:GetText())
+        EasyEcho_UI.UpdateHistoryUI()
+    end)
 
     local sf = CreateFrame("ScrollFrame", "EasyEchoScrollFrame", f)
     sf:SetPoint("TOPLEFT", 15, -135) 
@@ -424,9 +452,13 @@ function EasyEcho_UI.UpdateRerollStatus(used, total)
 end
 
 local function CalculateStats()
-    local cRend, cDouble, cEpicsPrio, cEpicsOther, cRares = 0, 0, 0, 0, 0
+    local cOne, cTwo, cEpicsPrio, cEpicsOther, cRares = 0, 0, 0, 0, 0
     if not EasyEchoHistoryDB then return 0,0,0,0,0 end
-    
+
+    local trackedOne, trackedTwo = GetTrackedSpellNames()
+    local tOneLower = string.lower(trackedOne or "")
+    local tTwoLower = string.lower(trackedTwo or "")
+
     for _, entry in ipairs(EasyEchoHistoryDB) do
         if entry.type == "SELECT" then
             if entry.quality == 3 then
@@ -435,20 +467,23 @@ local function CalculateStats()
             if entry.quality == 2 then cRares = cRares + 1 end
             if entry.name then
                 local n = string.lower(entry.name)
-                if n:find("rend the weak") and entry.quality == 2 then cRend = cRend + 1 end
-                if n:find("double strike") then cDouble = cDouble + 1 end
+                if tOneLower ~= "" and n:find(tOneLower, 1, true) then cOne = cOne + 1 end
+                if tTwoLower ~= "" and n:find(tTwoLower, 1, true) then cTwo = cTwo + 1 end
             end
         end
     end
-    return cRend, cDouble, cEpicsPrio, cEpicsOther, cRares
+    return cOne, cTwo, cEpicsPrio, cEpicsOther, cRares
 end
 
 function EasyEcho_UI.UpdateHistoryUI()
     if not historyFrame then CreateHistoryFrame() end
     local cntRend, cntDouble, cntEpicsPrio, cntEpicsOther, cntRares = CalculateStats()
-    
-    statRend:SetText("Rend (Rare): " .. cntRend)
-    statDouble:SetText("Double Strike: " .. cntDouble)
+    local trackedOne, trackedTwo = GetTrackedSpellNames()
+
+    statRend:SetText((trackedOne or "Spell 1") .. ": " .. cntRend)
+    statDouble:SetText((trackedTwo or "Spell 2") .. ": " .. cntDouble)
+    if trackedSpell1Box and trackedSpell1Box:GetText() ~= trackedOne then trackedSpell1Box:SetText(trackedOne) end
+    if trackedSpell2Box and trackedSpell2Box:GetText() ~= trackedTwo then trackedSpell2Box:SetText(trackedTwo) end
     statEpicsPrio:SetText("Epics (List): " .. cntEpicsPrio)
     statEpicsOther:SetText("Epics (Other): " .. cntEpicsOther)
     statRares:SetText("Total Rares: " .. cntRares)
@@ -607,41 +642,6 @@ function EasyEcho_UI.ToggleEchoList()
         echoesFrame:Show()
         EasyEcho_UI.UpdateEchoListUI()
     end
-end
-
-function EasyEcho_UI.UpdateStartStopButton()
-    UpdateButtonAppearance(miniStartStopBtn)
-    UpdateButtonAppearance(historyStartStopBtn)
-end
-
-local function CreateMiniStartStopButton()
-    if miniStartStopBtn then return end
-
-    local btn = CreateFrame("Button", "EasyEchoMiniStartStop", UIParent, "UIPanelButtonTemplate")
-    btn:SetSize(70, 24)
-    btn:SetPoint("TOP", UIParent, "TOP", 0, -10)
-    btn:SetMovable(true)
-    btn:EnableMouse(true)
-    btn:RegisterForDrag("LeftButton")
-    btn:SetScript("OnDragStart", btn.StartMoving)
-    btn:SetScript("OnDragStop", btn.StopMovingOrSizing)
-    btn:SetClampedToScreen(true)
-    btn:SetScript("OnClick", function()
-        EasyEcho_ToggleRunning()
-    end)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        if EasyEcho_IsRunning then
-            GameTooltip:SetText("EasyEcho: Running\nClick to stop.", 1, 0.3, 0.3, 1)
-        else
-            GameTooltip:SetText("EasyEcho: Stopped\nClick to start.", 0.3, 1, 0.3, 1)
-        end
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    miniStartStopBtn = btn
-    UpdateButtonAppearance(btn)
 end
 
 function EasyEcho_UI.Init()

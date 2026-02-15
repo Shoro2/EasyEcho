@@ -160,6 +160,10 @@ acceptDeathWatcher:Hide()
 acceptDeathWatcher.timer = 0
 acceptDeathWatcher.timeout = 0
 local hookedAcceptDeathButtons = {}
+local hookedStartButtons = {}
+local startButtonWatcher = CreateFrame("Frame")
+startButtonWatcher:Hide()
+startButtonWatcher.timer = 0
 local pickerFrame = CreateFrame("Frame")
 pickerFrame:Hide()
 pickerFrame.timer = 0
@@ -537,6 +541,62 @@ local function TryHookAcceptDeathButtons(root)
     return found
 end
 
+local function TryRequestChoiceNow()
+    if not ProjectEbonhold or not ProjectEbonhold.PerkService or not ProjectEbonhold.PerkService.RequestChoice then return end
+    ProjectEbonhold.PerkService.RequestChoice()
+
+    local choices = ProjectEbonhold.PerkService.GetCurrentChoice and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
+    if choices and #choices > 0 and not isProcessing then
+        currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
+        pickerFrame:Show()
+    end
+end
+
+local function IsStartButton(frame)
+    if not frame or not frame.GetObjectType or frame:GetObjectType() ~= "Button" then return false end
+
+    local txt = ""
+    if frame.GetText then
+        txt = NormalizeUiText(frame:GetText())
+    end
+
+    local name = frame.GetName and NormalizeUiText(frame:GetName()) or ""
+
+    return txt == "start" or txt:find("start", 1, true) ~= nil or name:find("start", 1, true) ~= nil
+end
+
+local function TryHookStartButtons(root)
+    if not root or not root.GetChildren then return false end
+
+    local found = false
+    local children = {root:GetChildren()}
+    for _, child in ipairs(children) do
+        if IsStartButton(child) and not hookedStartButtons[child] then
+            hookedStartButtons[child] = true
+            child:HookScript("OnClick", function()
+                TryRequestChoiceNow()
+                startButtonWatcher.timer = 0
+                startButtonWatcher:Show()
+            end)
+            found = true
+        end
+
+        if TryHookStartButtons(child) then
+            found = true
+        end
+    end
+
+    return found
+end
+
+startButtonWatcher:SetScript("OnUpdate", function(self, elapsed)
+    self.timer = self.timer + elapsed
+    if self.timer >= 1.0 then
+        self:Hide()
+        TryRequestChoiceNow()
+    end
+end)
+
 acceptDeathWatcher:SetScript("OnUpdate", function(self, elapsed)
     if not pendingDeathReset then
         self:Hide()
@@ -570,10 +630,11 @@ eventFrame:SetScript("OnEvent", function(_, event)
         if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
         if EasyEcho_UI then EasyEcho_UI.Init() end
         SyncRerollStatus()
+        TryHookStartButtons(UIParent)
+        TryRequestChoiceNow()
 
         if ProjectEbonhold and ProjectEbonhold.PerkUI then
             hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
-                if not EasyEcho_IsRunning then return end
                 if isProcessing then return end
                 currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
                 SyncRerollStatus()
@@ -608,6 +669,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             acceptDeathWatcher:Hide()
         end
         SyncRerollStatus()
+        TryHookStartButtons(UIParent)
     end
 end)
 
