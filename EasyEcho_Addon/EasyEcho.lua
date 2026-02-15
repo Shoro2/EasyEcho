@@ -1005,6 +1005,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
         if not EasyEchoLogDB then EasyEchoLogDB = {} end
         if not EasyEchoSettings then EasyEchoSettings = {} end
         if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
+        if not EasyEchoEchoDB then EasyEchoEchoDB = {} end
         if EasyEcho_UI then EasyEcho_UI.Init() end
         SyncRerollStatus()
         TryHookStartButtons(UIParent)
