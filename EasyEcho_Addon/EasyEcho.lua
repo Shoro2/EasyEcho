@@ -487,14 +487,7 @@ pickerFrame:SetScript("OnUpdate", function(self, elapsed)
         end
     end
 
-    local name = frame.GetName and frame:GetName() or ""
-    name = string.lower(name or "")
-    if name:find("accept", 1, true) and name:find("death", 1, true) then
-        return true
-    end
-
-    return false
-end
+end)
 
 local function IsAcceptDeathButton(frame)
     if not frame or frame.GetObjectType == nil then return false end
