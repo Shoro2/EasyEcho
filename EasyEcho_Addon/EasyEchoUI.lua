@@ -343,10 +343,7 @@ local function CreateHistoryFrame()
     clearBtn:SetPoint("TOPLEFT", 12, -10)
     clearBtn:SetText("Clear All")
     clearBtn:SetScript("OnClick", function()
-        EasyEchoHistoryDB, EasyEchoLogDB = {}, {}
-        if EasyEchoSettings then EasyEchoSettings.CurrentPickCount = 2 end
-        EasyEcho_UI.UpdateHistoryUI()
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Everything has been reset.")
+        EasyEcho_UI.ResetAllData("Everything has been reset.")
     end)
 	
 	-- Suche diesen Block in der Funktion CreateHistoryFrame() innerhalb der EasyEchoUI.lua
@@ -465,6 +462,35 @@ function EasyEcho_UI.AddRerollToHistory(reason, levelCount, used, total)
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     table.insert(EasyEchoHistoryDB, {type="REROLL", level=levelCount, reason=reason, countStr=(used or "?").."/"..(total or "?"), timestamp=time()})
     EasyEcho_UI.UpdateHistoryUI()
+end
+
+function EasyEcho_UI.ResetAllData(chatMessage)
+    EasyEchoHistoryDB = {}
+    EasyEchoLogDB = {}
+
+    if EasyEchoSettings then
+        EasyEchoSettings.CurrentPickCount = 2
+    end
+
+    local granted = nil
+    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.GetGrantedPerks then
+        granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+    end
+
+    if type(granted) == "table" then
+        table.wipe(granted)
+    elseif ProjectEbonhold and ProjectEbonhold.Perks and type(ProjectEbonhold.Perks.grantedPerks) == "table" then
+        table.wipe(ProjectEbonhold.Perks.grantedPerks)
+    end
+
+    if chatMessage and DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r " .. chatMessage)
+    end
+
+    EasyEcho_UI.UpdateHistoryUI()
+    if echoesFrame and echoesFrame:IsShown() then
+        EasyEcho_UI.UpdateEchoListUI()
+    end
 end
 
 function EasyEcho_UI.UpdateEchoListUI()
