@@ -252,6 +252,81 @@ end
 
 local lastLoggedLevel = -1 -- Verhindert Log-Spam
 
+-- =========================================================
+-- MISSING CORE FUNCTIONS (were called but never defined)
+-- =========================================================
+local function CheckPriority(choices)
+    local bestRank, bestName, bestQual, bestIdx = 99999, nil, nil, nil
+    for i, choice in ipairs(choices) do
+        local name = GetSpellInfo(choice.spellId)
+        if name and not IsBanned(name) then
+            -- Skip one-time perks the player already has
+            if not (ONE_TIME_MAP[string.lower(name)] and PlayerAlreadyHasPerk(name)) then
+                local rank = GetExactPriorityRank(name, choice.quality)
+                if rank < bestRank then
+                    bestRank, bestName, bestQual, bestIdx = rank, name, choice.quality, i
+                end
+            end
+        end
+    end
+    if bestRank < 99999 then
+        return bestName, bestQual, bestIdx
+    end
+    return nil, nil, nil
+end
+
+local function CheckBanned(choices)
+    local allBanned = true
+    local bannedNames = {}
+    for _, choice in ipairs(choices) do
+        local name = GetSpellInfo(choice.spellId)
+        if name then
+            if IsBanned(name) then
+                table.insert(bannedNames, name)
+            else
+                allBanned = false
+            end
+        end
+    end
+    return allBanned, table.concat(bannedNames, ", ")
+end
+
+local function HandleReroll(pickLevel, reason)
+    if pickLevel < MIN_LEVEL_FOR_REROLL then return false end
+    local usedRerolls, totalRerolls = GetServerRunData()
+    if currentRerolls >= MAX_REROLLS_PER_CHOICE then return false end
+    if usedRerolls >= totalRerolls then return false end
+
+    currentRerolls = currentRerolls + 1
+    LogDecision("REROLL", "-", nil, reason, usedRerolls + 1, totalRerolls, false)
+
+    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestReroll then
+        ProjectEbonhold.PerkService.RequestReroll()
+    end
+
+    pickerFrame.state = "WAIT_FOR_NEW_CARDS"
+    pickerFrame.timer = 0
+    return true
+end
+
+local function SelectSpell(idx, name, quality, pickLevel, isPrio)
+    isProcessing = true
+
+    local choices = ProjectEbonhold.PerkService.GetCurrentChoice()
+    if not choices or not choices[idx] then
+        isProcessing = false
+        return
+    end
+
+    LogDecision("SELECT", name or "Unknown", quality, isPrio and "Priority match" or "Fallback", 0, 0, isPrio)
+
+    ProjectEbonhold.PerkService.SelectPerk(choices[idx].spellId)
+
+    EasyEchoSettings.CurrentPickCount = (EasyEchoSettings.CurrentPickCount or 2) + 1
+    pickerFrame.state = "LOCKED"
+    pickerFrame.timer = 0
+end
+
 local function ProcessChoices()
     if isProcessing then return end
     
@@ -297,7 +372,13 @@ end
 pickerFrame:SetScript("OnUpdate", function(self, elapsed)
     self.timer = self.timer + elapsed
     if self.state == "START_DELAY" and self.timer > DELAY_TIME then
+        self.state = "PROCESSING"
         ProcessChoices()
+        -- If ProcessChoices didn't transition state (e.g. no choices / error), stop the loop
+        if self.state == "PROCESSING" then
+            self.state = nil
+            self:Hide()
+        end
     elseif self.state == "WAIT_FOR_NEW_CARDS" and self.timer > 0.05 then
         self.timer = 0
         local cur = ProjectEbonhold.PerkService.GetCurrentChoice()
