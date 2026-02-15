@@ -532,6 +532,7 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:RegisterEvent("PLAYER_DEAD")
 eventFrame:RegisterEvent("PLAYER_ALIVE")
+eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
 	InitializePrioList()
@@ -558,6 +559,13 @@ eventFrame:SetScript("OnEvent", function(_, event)
         acceptDeathWatcher.timeout = 0
         TryHookAcceptDeathButtons(UIParent)
         acceptDeathWatcher:Show()
+        return
+    end
+
+    if event == "PLAYER_LEVEL_UP" then
+        if EasyEcho_UI and EasyEcho_UI.UpdateEchoListUI and EasyEchoGrantedEchoesFrame and EasyEchoGrantedEchoesFrame:IsShown() then
+            EasyEcho_UI.UpdateEchoListUI()
+        end
         return
     end
 

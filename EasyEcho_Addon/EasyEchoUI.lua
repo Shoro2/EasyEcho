@@ -258,8 +258,8 @@ end
 
 local function CreateHistoryFrame()
     local f = CreateFrame("Frame", "EasyEchoHistoryFrame", UIParent)
-    f:SetWidth(600)
-    f:SetHeight(540)
+    f:SetWidth(700)
+    f:SetHeight(620)
     f:SetPoint("CENTER")
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -321,7 +321,7 @@ local function CreateHistoryFrame()
     sf:SetPoint("BOTTOMRIGHT", -35, 15)
     
     local content = CreateFrame("Frame", nil, sf)
-    content:SetWidth(550)
+    content:SetWidth(650)
     content:SetHeight(1)
     sf:SetScrollChild(content)
     historyContent, historyScrollFrame = content, sf
@@ -418,7 +418,7 @@ function EasyEcho_UI.UpdateHistoryUI()
         local text = fontStringPool[i] or historyContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         if not fontStringPool[i] then table.insert(fontStringPool, text) end
         text:SetPoint("TOPLEFT", 0, -yOffset)
-        text:SetWidth(560)
+        text:SetWidth(660)
         text:SetJustifyH("LEFT")
         local line = ""
         if entry.type == "OPTIONS" then line = "|cff666666[#"..entry.level.." Offers]: "..entry.text.."|r"
