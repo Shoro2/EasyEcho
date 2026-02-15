@@ -716,10 +716,9 @@ end
 local function EnsureShowUiButton(startButton)
     if not startButton or showUiButtonsByStart[startButton] then return end
 
-    local parent = startButton:GetParent() or UIParent
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local btn = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
     btn:SetSize(startButton:GetWidth() or 180, 24)
-    btn:SetPoint("TOP", startButton, "BOTTOM", 0, -6)
+    btn:SetPoint("TOP", UIParent, "TOP", 75, -2)
     btn:SetText("Show UI")
     btn:SetScript("OnClick", function()
         if EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
@@ -914,10 +913,9 @@ end
 local function EnsureShowUiButton(startButton)
     if not startButton or showUiButtonsByStart[startButton] then return end
 
-    local parent = startButton:GetParent() or UIParent
-    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local btn = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
     btn:SetSize(startButton:GetWidth() or 180, 24)
-    btn:SetPoint("TOP", startButton, "BOTTOM", 0, -6)
+    btn:SetPoint("TOP", UIParent, "TOP", 75, -2)
     btn:SetText("Show UI")
     btn:SetScript("OnClick", function()
         if EasyEcho_UI and EasyEcho_UI.ShowMainWindow then

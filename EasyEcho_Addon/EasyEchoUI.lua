@@ -57,7 +57,7 @@ local function CreateMiniStartStopButton()
 
     local btn = CreateFrame("Button", "EasyEchoMiniStartStop", UIParent, "UIPanelButtonTemplate")
     btn:SetSize(62, 20)
-    btn:SetPoint("TOP", UIParent, "TOP", 0, -120)
+    btn:SetPoint("TOP", UIParent, "TOP", 0, -2)
     btn:SetMovable(true)
     btn:EnableMouse(true)
     btn:RegisterForDrag("LeftButton")
@@ -336,8 +336,8 @@ end
 
 local function CreateHistoryFrame()
     local f = CreateFrame("Frame", "EasyEchoHistoryFrame", UIParent)
-    f:SetWidth(700)
-    f:SetHeight(620)
+    f:SetWidth(760)
+    f:SetHeight(680)
     f:SetPoint("CENTER")
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -422,7 +422,7 @@ local function CreateHistoryFrame()
     sf:SetPoint("BOTTOMRIGHT", -35, 15)
     
     local content = CreateFrame("Frame", nil, sf)
-    content:SetWidth(650)
+    content:SetWidth(710)
     content:SetHeight(1)
     sf:SetScrollChild(content)
     historyContent, historyScrollFrame = content, sf
