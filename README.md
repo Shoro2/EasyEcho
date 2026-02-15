@@ -165,3 +165,31 @@ Defined in `EasyEcho.toc`:
 
 Typical layout:
 
+Typical layout:
+
+EasyEcho/
+├── EasyEcho_Addon/ # Main addon
+│ ├── EasyEcho.toc
+│ ├── EasyEcho.lua
+│ ├── EasyEchoConfig.lua
+│ └── EasyEchoUI.lua
+└── ProjectEbonhold_Addon/ # Reference copy of server addon modules
+└── .../modules/perks/
+├── perks.lua
+└── perks_service.lua
+
+
+(Your repo may include additional reference modules like `player_run_service.lua`, `player_run_ui.lua`, and `deathFrame.lua`.)
+
+---
+
+## Development notes (no sugar-coating)
+
+- The codebase contains **duplicated helper functions** (e.g. some hook/reset helpers exist twice). It works, but it makes maintenance harder.
+- Initialization relies on SavedVariables being present/created in the right order. If you refactor, be careful to initialize `EasyEchoSettings` before calling code that expects it.
+
+---
+
+## License
+
+No license file is included. If you plan to publish this repo, add a `LICENSE` (MIT / Apache-2.0 / GPL, etc.) so the legal status is unambiguous.
