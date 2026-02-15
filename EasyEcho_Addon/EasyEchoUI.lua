@@ -13,6 +13,9 @@ local echoesFrame = nil
 local echoesContent = nil
 local echoesScrollBar = nil
 local echoesFontPool = {}
+local echoesSortMode = "rarity"
+local echoesSearchText = ""
+local echoesSortDropDown = nil
 
 local MAX_REROLLS_UI = 10 
 
@@ -43,6 +46,21 @@ local QUALITY_COLORS = {
     [4] = "ffff8000"  
 }
 
+local function GetPrioRank(name, quality)
+    if not name or not EasyEchoSettings or not EasyEchoSettings.PriorityList then return 99999 end
+    local specKey = string.lower(name .. "::" .. (QUALITY_NAMES[quality] or "Common"))
+    local anyKey = string.lower(name .. "::Any")
+
+    for i, listKey in ipairs(EasyEchoSettings.PriorityList) do
+        local low = string.lower(listKey)
+        if low == specKey or low == anyKey then
+            return i
+        end
+    end
+
+    return 99999
+end
+
 local function GetGrantedEchoesSorted()
     local granted = nil
 
@@ -58,19 +76,29 @@ local function GetGrantedEchoesSorted()
         return {}
     end
 
-    local entries = {}
+    local grouped = {}
+    local groupedOrder = {}
 
     local function AddPerk(perk)
         if type(perk) ~= "table" then return end
         local spellId = perk.spellId
         if not spellId then return end
-        local name = GetSpellInfo(spellId)
-        table.insert(entries, {
-            name = name or ("Spell " .. tostring(spellId or "?")),
-            quality = perk.quality or 0,
-            stack = perk.stack or 1,
-            maxStack = perk.maxStack or 1
-        })
+
+        local name = GetSpellInfo(spellId) or ("Spell " .. tostring(spellId or "?"))
+        local quality = perk.quality or 0
+        local key = string.lower(name) .. "::" .. tostring(quality)
+
+        if not grouped[key] then
+            grouped[key] = {
+                name = name,
+                quality = quality,
+                count = 0,
+                prioRank = GetPrioRank(name, quality)
+            }
+            table.insert(groupedOrder, grouped[key])
+        end
+
+        grouped[key].count = grouped[key].count + 1
     end
 
     if granted[1] then
@@ -87,14 +115,45 @@ local function GetGrantedEchoesSorted()
         end
     end
 
-    table.sort(entries, function(a, b)
-        if a.quality ~= b.quality then
-            return a.quality > b.quality
+    local filtered = {}
+    local searchLower = string.lower(echoesSearchText or "")
+    for _, entry in ipairs(groupedOrder) do
+        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true) then
+            table.insert(filtered, entry)
         end
-        return string.lower(a.name) < string.lower(b.name)
+    end
+
+    table.sort(filtered, function(a, b)
+        if echoesSortMode == "name" then
+            if string.lower(a.name) ~= string.lower(b.name) then
+                return string.lower(a.name) < string.lower(b.name)
+            end
+            return a.quality > b.quality
+        elseif echoesSortMode == "count" then
+            if a.count ~= b.count then
+                return a.count > b.count
+            end
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
+            end
+            return string.lower(a.name) < string.lower(b.name)
+        elseif echoesSortMode == "prio" then
+            if a.prioRank ~= b.prioRank then
+                return a.prioRank < b.prioRank
+            end
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
+            end
+            return string.lower(a.name) < string.lower(b.name)
+        else
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
+            end
+            return string.lower(a.name) < string.lower(b.name)
+        end
     end)
 
-    return entries
+    return filtered
 end
 
 local function CreateEchoesFrame()
@@ -121,12 +180,51 @@ local function CreateEchoesFrame()
     title:SetPoint("TOP", f, "TOP", 0, -15)
     title:SetText("Granted Echoes")
 
-    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", 18, -42)
-    hint:SetText("Sorted by Quality (descending)")
+    local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    searchLabel:SetPoint("TOPLEFT", 18, -42)
+    searchLabel:SetText("Search")
+
+    local searchBox = CreateFrame("EditBox", "EasyEchoEchoesSearchBox", f, "InputBoxTemplate")
+    searchBox:SetSize(150, 20)
+    searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 6, 0)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnTextChanged", function(self)
+        echoesSearchText = self:GetText() or ""
+        EasyEcho_UI.UpdateEchoListUI()
+    end)
+
+    local sortLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sortLabel:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
+    sortLabel:SetText("Sort")
+
+    local sortDrop = CreateFrame("Frame", "EasyEchoEchoesSortDropDown", f, "UIDropDownMenuTemplate")
+    sortDrop:SetPoint("LEFT", sortLabel, "RIGHT", -12, -2)
+    UIDropDownMenu_SetWidth(sortDrop, 110)
+    UIDropDownMenu_Initialize(sortDrop, function(self, level)
+        local options = {
+            { text = "Rarity", value = "rarity" },
+            { text = "Name", value = "name" },
+            { text = "Count", value = "count" },
+            { text = "Prio List", value = "prio" }
+        }
+
+        for _, option in ipairs(options) do
+            UIDropDownMenu_AddButton({
+                text = option.text,
+                value = option.value,
+                func = function(btn)
+                    echoesSortMode = btn.value
+                    UIDropDownMenu_SetText(sortDrop, option.text)
+                    EasyEcho_UI.UpdateEchoListUI()
+                end
+            }, level)
+        end
+    end)
+    UIDropDownMenu_SetText(sortDrop, "Rarity")
+    echoesSortDropDown = sortDrop
 
     local sf = CreateFrame("ScrollFrame", "EasyEchoEchoesScrollFrame", f)
-    sf:SetPoint("TOPLEFT", 15, -60)
+    sf:SetPoint("TOPLEFT", 15, -72)
     sf:SetPoint("BOTTOMRIGHT", -35, 20)
 
     local content = CreateFrame("Frame", nil, sf)
@@ -400,12 +498,12 @@ function EasyEcho_UI.UpdateEchoListUI()
 
             local qName = QUALITY_NAMES[entry.quality] or "Common"
             local qColor = QUALITY_COLORS[entry.quality] or "ffffffff"
-            local stackSuffix = ""
-            if (entry.maxStack or 1) > 1 then
-                stackSuffix = " |cffbbbbbb(" .. tostring(entry.stack or 1) .. "/" .. tostring(entry.maxStack or 1) .. ")|r"
+            local countSuffix = ""
+            if (entry.count or 1) > 1 then
+                countSuffix = " |cffbbbbbbx" .. tostring(entry.count) .. "|r"
             end
 
-            text:SetText("|c" .. qColor .. "[" .. qName .. "]|r " .. entry.name .. stackSuffix)
+            text:SetText("|c" .. qColor .. "[" .. qName .. "]|r " .. entry.name .. countSuffix)
             text:Show()
             yOffset = yOffset + 16
         end
