@@ -9,6 +9,14 @@ local historyContent = nil
 local scrollBar = nil
 local fontStringPool = {} 
 
+local echoesFrame = nil
+local echoesContent = nil
+local echoesScrollBar = nil
+local echoesFontPool = {}
+local echoesSortMode = "rarity"
+local echoesSearchText = ""
+local echoesSortDropDown = nil
+
 local MAX_REROLLS_UI = 10 
 
 -- STATS LABELS
@@ -26,15 +34,227 @@ local QUALITY_NAMES = {
     [0] = "Common",
     [1] = "Uncommon",
     [2] = "Rare",
-    [3] = "Epic"
+    [3] = "Epic",
+    [4] = "Legendary"
 }
 
 local QUALITY_COLORS = {
     [0] = "ffffffff", 
     [1] = "ff1eff00", 
     [2] = "ff0070dd", 
-    [3] = "ffa335ee"  
+    [3] = "ffa335ee",
+    [4] = "ffff8000"  
 }
+
+local function GetPrioRank(name, quality)
+    if not name or not EasyEchoSettings or not EasyEchoSettings.PriorityList then return 99999 end
+    local specKey = string.lower(name .. "::" .. (QUALITY_NAMES[quality] or "Common"))
+    local anyKey = string.lower(name .. "::Any")
+
+    for i, listKey in ipairs(EasyEchoSettings.PriorityList) do
+        local low = string.lower(listKey)
+        if low == specKey or low == anyKey then
+            return i
+        end
+    end
+
+    return 99999
+end
+
+local function GetGrantedEchoesSorted()
+    local granted = nil
+
+    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.GetGrantedPerks then
+        granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+    end
+
+    if not granted and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.grantedPerks then
+        granted = ProjectEbonhold.Perks.grantedPerks
+    end
+
+    if type(granted) ~= "table" then
+        return {}
+    end
+
+    local grouped = {}
+    local groupedOrder = {}
+
+    local function AddPerk(perk)
+        if type(perk) ~= "table" then return end
+        local spellId = perk.spellId
+        if not spellId then return end
+
+        local name = GetSpellInfo(spellId) or ("Spell " .. tostring(spellId or "?"))
+        local quality = perk.quality or 0
+        local key = string.lower(name) .. "::" .. tostring(quality)
+
+        if not grouped[key] then
+            grouped[key] = {
+                name = name,
+                quality = quality,
+                count = 0,
+                prioRank = GetPrioRank(name, quality)
+            }
+            table.insert(groupedOrder, grouped[key])
+        end
+
+        grouped[key].count = grouped[key].count + 1
+    end
+
+    if granted[1] then
+        for _, perk in ipairs(granted) do
+            AddPerk(perk)
+        end
+    else
+        for _, perkList in pairs(granted) do
+            if type(perkList) == "table" then
+                for _, perk in ipairs(perkList) do
+                    AddPerk(perk)
+                end
+            end
+        end
+    end
+
+    local filtered = {}
+    local searchLower = string.lower(echoesSearchText or "")
+    for _, entry in ipairs(groupedOrder) do
+        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true) then
+            table.insert(filtered, entry)
+        end
+    end
+
+    table.sort(filtered, function(a, b)
+        if echoesSortMode == "name" then
+            if string.lower(a.name) ~= string.lower(b.name) then
+                return string.lower(a.name) < string.lower(b.name)
+            end
+            return a.quality > b.quality
+        elseif echoesSortMode == "count" then
+            if a.count ~= b.count then
+                return a.count > b.count
+            end
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
+            end
+            return string.lower(a.name) < string.lower(b.name)
+        elseif echoesSortMode == "prio" then
+            if a.prioRank ~= b.prioRank then
+                return a.prioRank < b.prioRank
+            end
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
+            end
+            return string.lower(a.name) < string.lower(b.name)
+        else
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
+            end
+            return string.lower(a.name) < string.lower(b.name)
+        end
+    end)
+
+    return filtered
+end
+
+local function CreateEchoesFrame()
+    if echoesFrame then return end
+
+    local f = CreateFrame("Frame", "EasyEchoGrantedEchoesFrame", UIParent)
+    f:SetWidth(520)
+    f:SetHeight(460)
+    f:SetPoint("CENTER", 120, 20)
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", f, "TOP", 0, -15)
+    title:SetText("Granted Echoes")
+
+    local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    searchLabel:SetPoint("TOPLEFT", 18, -42)
+    searchLabel:SetText("Search")
+
+    local searchBox = CreateFrame("EditBox", "EasyEchoEchoesSearchBox", f, "InputBoxTemplate")
+    searchBox:SetSize(150, 20)
+    searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 6, 0)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnTextChanged", function(self)
+        echoesSearchText = self:GetText() or ""
+        EasyEcho_UI.UpdateEchoListUI()
+    end)
+
+    local sortLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sortLabel:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
+    sortLabel:SetText("Sort")
+
+    local sortDrop = CreateFrame("Frame", "EasyEchoEchoesSortDropDown", f, "UIDropDownMenuTemplate")
+    sortDrop:SetPoint("LEFT", sortLabel, "RIGHT", -12, -2)
+    UIDropDownMenu_SetWidth(sortDrop, 110)
+    UIDropDownMenu_Initialize(sortDrop, function(self, level)
+        local options = {
+            { text = "Rarity", value = "rarity" },
+            { text = "Name", value = "name" },
+            { text = "Count", value = "count" },
+            { text = "Prio List", value = "prio" }
+        }
+
+        for _, option in ipairs(options) do
+            UIDropDownMenu_AddButton({
+                text = option.text,
+                value = option.value,
+                func = function(btn)
+                    echoesSortMode = btn.value
+                    UIDropDownMenu_SetText(sortDrop, option.text)
+                    EasyEcho_UI.UpdateEchoListUI()
+                end
+            }, level)
+        end
+    end)
+    UIDropDownMenu_SetText(sortDrop, "Rarity")
+    echoesSortDropDown = sortDrop
+
+    local sf = CreateFrame("ScrollFrame", "EasyEchoEchoesScrollFrame", f)
+    sf:SetPoint("TOPLEFT", 15, -72)
+    sf:SetPoint("BOTTOMRIGHT", -35, 20)
+
+    local content = CreateFrame("Frame", nil, sf)
+    content:SetWidth(460)
+    content:SetHeight(1)
+    sf:SetScrollChild(content)
+    echoesContent = content
+
+    local sb = CreateFrame("Slider", "EasyEchoEchoesScrollBar", f, "UIPanelScrollBarTemplate")
+    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 4, -16)
+    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 4, 16)
+    sb:SetMinMaxValues(0, 0)
+    sb:SetValueStep(1)
+    sb:SetScript("OnValueChanged", function(self, value) sf:SetVerticalScroll(value) end)
+    echoesScrollBar = sb
+
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", -5, -5)
+
+    local backBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    backBtn:SetSize(70, 20)
+    backBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
+    backBtn:SetText("Back")
+    backBtn:SetScript("OnClick", function()
+        EasyEcho_UI.ShowMainWindow()
+    end)
+
+    f:Hide()
+    echoesFrame = f
+end
 
 local function CreateHistoryFrame()
     local f = CreateFrame("Frame", "EasyEchoHistoryFrame", UIParent)
@@ -135,17 +355,21 @@ local function CreateHistoryFrame()
 	configBtn:SetPoint("TOPRIGHT", -35, -10)
 	configBtn:SetText("Config")
 	configBtn:SetScript("OnClick", function()
-		-- Sicherheitsabfrage für das Config-Modul
 		if EasyEcho_Config and EasyEcho_Config.Toggle then
-			-- Schließt das aktuelle Fenster (History), bevor die Config geöffnet wird
-			if historyFrame then 
-				historyFrame:Hide() 
-			end
-			-- Öffnet das Konfigurationsfenster
+			if historyFrame then historyFrame:Hide() end
+			if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
 			EasyEcho_Config.Toggle()
 		else
 			DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EasyEcho]|r Error: Config module not loaded!")
 		end
+	end)
+
+	local echoesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	echoesBtn:SetSize(80, 22)
+	echoesBtn:SetPoint("RIGHT", configBtn, "LEFT", -5, 0)
+	echoesBtn:SetText("Echoes")
+	echoesBtn:SetScript("OnClick", function()
+		EasyEcho_UI.ToggleEchoList()
 	end)
     
     f:Hide()
@@ -241,6 +465,80 @@ function EasyEcho_UI.AddRerollToHistory(reason, levelCount, used, total)
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     table.insert(EasyEchoHistoryDB, {type="REROLL", level=levelCount, reason=reason, countStr=(used or "?").."/"..(total or "?"), timestamp=time()})
     EasyEcho_UI.UpdateHistoryUI()
+end
+
+function EasyEcho_UI.UpdateEchoListUI()
+    if not echoesFrame then CreateEchoesFrame() end
+
+    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
+        ProjectEbonhold.PerkService.RequestGrantedPerks()
+    end
+
+    for _, fs in ipairs(echoesFontPool) do fs:Hide() end
+
+    local entries = GetGrantedEchoesSorted()
+    local yOffset = 0
+
+    if #entries == 0 then
+        local emptyText = echoesFontPool[1] or echoesContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        if not echoesFontPool[1] then table.insert(echoesFontPool, emptyText) end
+        emptyText:SetPoint("TOPLEFT", 0, 0)
+        emptyText:SetWidth(450)
+        emptyText:SetJustifyH("LEFT")
+        emptyText:SetText("No echoes granted yet.")
+        emptyText:Show()
+        yOffset = 16
+    else
+        for i, entry in ipairs(entries) do
+            local text = echoesFontPool[i] or echoesContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            if not echoesFontPool[i] then table.insert(echoesFontPool, text) end
+            text:SetPoint("TOPLEFT", 0, -yOffset)
+            text:SetWidth(450)
+            text:SetJustifyH("LEFT")
+
+            local qName = QUALITY_NAMES[entry.quality] or "Common"
+            local qColor = QUALITY_COLORS[entry.quality] or "ffffffff"
+            local countSuffix = ""
+            if (entry.count or 1) > 1 then
+                countSuffix = " |cffbbbbbbx" .. tostring(entry.count) .. "|r"
+            end
+
+            text:SetText("|c" .. qColor .. "[" .. qName .. "]|r " .. entry.name .. countSuffix)
+            text:Show()
+            yOffset = yOffset + 16
+        end
+    end
+
+    echoesContent:SetHeight(yOffset)
+    local maxScroll = math.max(0, yOffset - 360)
+    echoesScrollBar:SetMinMaxValues(0, maxScroll)
+    echoesScrollBar:SetValue(0)
+end
+
+function EasyEcho_UI.ShowMainWindow()
+    if not historyFrame then CreateHistoryFrame() end
+    if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
+
+    local config = _G["EasyEchoConfigFrame"]
+    if config and config:IsShown() then
+        config:Hide()
+    end
+
+    historyFrame:Show()
+    EasyEcho_UI.UpdateHistoryUI()
+end
+
+function EasyEcho_UI.ToggleEchoList()
+    if not echoesFrame then CreateEchoesFrame() end
+    if echoesFrame:IsShown() then
+        echoesFrame:Hide()
+    else
+        if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
+        local config = _G["EasyEchoConfigFrame"]
+        if config and config:IsShown() then config:Hide() end
+        echoesFrame:Show()
+        EasyEcho_UI.UpdateEchoListUI()
+    end
 end
 
 function EasyEcho_UI.Init()
