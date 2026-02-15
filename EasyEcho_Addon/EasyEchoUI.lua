@@ -63,16 +63,26 @@ end
 
 local function GetGrantedEchoesSorted()
     local granted = nil
+    local locked = nil
 
-    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.GetGrantedPerks then
-        granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then
+            granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+        end
+        if ProjectEbonhold.PerkService.GetLockedPerks then
+            locked = ProjectEbonhold.PerkService.GetLockedPerks()
+        end
     end
 
     if not granted and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.grantedPerks then
         granted = ProjectEbonhold.Perks.grantedPerks
     end
 
-    if type(granted) ~= "table" then
+    if not locked and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.lockedPerks then
+        locked = ProjectEbonhold.Perks.lockedPerks
+    end
+
+    if type(granted) ~= "table" and type(locked) ~= "table" then
         return {}
     end
 
@@ -98,22 +108,31 @@ local function GetGrantedEchoesSorted()
             table.insert(groupedOrder, grouped[key])
         end
 
-        grouped[key].count = grouped[key].count + 1
+        local amount = tonumber(perk.stack) or 1
+        if amount < 1 then amount = 1 end
+        grouped[key].count = grouped[key].count + amount
     end
 
-    if granted[1] then
-        for _, perk in ipairs(granted) do
-            AddPerk(perk)
-        end
-    else
-        for _, perkList in pairs(granted) do
-            if type(perkList) == "table" then
-                for _, perk in ipairs(perkList) do
-                    AddPerk(perk)
+    local function AddFromContainer(container)
+        if type(container) ~= "table" then return end
+
+        if container[1] then
+            for _, perk in ipairs(container) do
+                AddPerk(perk)
+            end
+        else
+            for _, perkList in pairs(container) do
+                if type(perkList) == "table" then
+                    for _, perk in ipairs(perkList) do
+                        AddPerk(perk)
+                    end
                 end
             end
         end
     end
+
+    AddFromContainer(granted)
+    AddFromContainer(locked)
 
     local filtered = {}
     local searchLower = string.lower(echoesSearchText or "")
