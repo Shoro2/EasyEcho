@@ -119,11 +119,40 @@ function EasyEcho_SwitchProfile(profileName)
 end
 
 -- =========================================================
+-- START / STOP STATE
+-- =========================================================
+EasyEcho_IsRunning = false
+
+function EasyEcho_Start()
+    EasyEcho_IsRunning = true
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Bot |cff00ff00STARTED|r – auto-selecting perks.")
+    if EasyEcho_UI and EasyEcho_UI.UpdateStartStopButton then
+        EasyEcho_UI.UpdateStartStopButton()
+    end
+end
+
+function EasyEcho_Stop()
+    EasyEcho_IsRunning = false
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Bot |cffff4444STOPPED|r – manual mode.")
+    if EasyEcho_UI and EasyEcho_UI.UpdateStartStopButton then
+        EasyEcho_UI.UpdateStartStopButton()
+    end
+end
+
+function EasyEcho_ToggleRunning()
+    if EasyEcho_IsRunning then
+        EasyEcho_Stop()
+    else
+        EasyEcho_Start()
+    end
+end
+
+-- =========================================================
 -- SYSTEM
 -- =========================================================
-local currentRerolls = 0 
-local lastChoicesRef = nil 
-local isProcessing = false 
+local currentRerolls = 0
+local lastChoicesRef = nil
+local isProcessing = false
 local lastLoggedLevel = -1 -- Muss außerhalb der Funktion stehen, um sich den Level zu merken
 local pendingDeathReset = false
 local acceptDeathWatcher = CreateFrame("Frame")
@@ -544,6 +573,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
 
         if ProjectEbonhold and ProjectEbonhold.PerkUI then
             hooksecurefunc(ProjectEbonhold.PerkUI, "Show", function()
+                if not EasyEcho_IsRunning then return end
                 if isProcessing then return end
                 currentRerolls, pickerFrame.state, pickerFrame.timer = 0, "START_DELAY", 0
                 SyncRerollStatus()

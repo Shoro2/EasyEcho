@@ -9,6 +9,9 @@ local historyContent = nil
 local scrollBar = nil
 local fontStringPool = {} 
 
+local miniStartStopBtn = nil
+local historyStartStopBtn = nil
+
 local echoesFrame = nil
 local echoesContent = nil
 local echoesScrollBar = nil
@@ -275,6 +278,17 @@ local function CreateEchoesFrame()
     echoesFrame = f
 end
 
+local function UpdateButtonAppearance(btn)
+    if not btn then return end
+    if EasyEcho_IsRunning then
+        btn:SetText("Stop")
+        btn:GetNormalTexture():SetVertexColor(0.8, 0.2, 0.2) -- red tint
+    else
+        btn:SetText("Start")
+        btn:GetNormalTexture():SetVertexColor(0.2, 0.8, 0.2) -- green tint
+    end
+end
+
 local function CreateHistoryFrame()
     local f = CreateFrame("Frame", "EasyEchoHistoryFrame", UIParent)
     f:SetWidth(700)
@@ -356,10 +370,19 @@ local function CreateHistoryFrame()
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -5, -5)
 
+    local startStopBtn = CreateFrame("Button", "EasyEchoHistoryStartStop", f, "UIPanelButtonTemplate")
+    startStopBtn:SetSize(80, 22)
+    startStopBtn:SetPoint("TOPLEFT", 12, -10)
+    startStopBtn:SetScript("OnClick", function()
+        EasyEcho_ToggleRunning()
+    end)
+    historyStartStopBtn = startStopBtn
+    UpdateButtonAppearance(startStopBtn)
+
     local clearBtn = CreateFrame("Button", "EasyEchoClearBtn", f, "UIPanelButtonTemplate")
     clearBtn:SetWidth(80)
     clearBtn:SetHeight(22)
-    clearBtn:SetPoint("TOPLEFT", 12, -10)
+    clearBtn:SetPoint("LEFT", startStopBtn, "RIGHT", 5, 0)
     clearBtn:SetText("Clear All")
     clearBtn:SetScript("OnClick", function()
         EasyEcho_UI.ResetAllData("Everything has been reset.")
@@ -586,9 +609,45 @@ function EasyEcho_UI.ToggleEchoList()
     end
 end
 
+function EasyEcho_UI.UpdateStartStopButton()
+    UpdateButtonAppearance(miniStartStopBtn)
+    UpdateButtonAppearance(historyStartStopBtn)
+end
+
+local function CreateMiniStartStopButton()
+    if miniStartStopBtn then return end
+
+    local btn = CreateFrame("Button", "EasyEchoMiniStartStop", UIParent, "UIPanelButtonTemplate")
+    btn:SetSize(70, 24)
+    btn:SetPoint("TOP", UIParent, "TOP", 0, -10)
+    btn:SetMovable(true)
+    btn:EnableMouse(true)
+    btn:RegisterForDrag("LeftButton")
+    btn:SetScript("OnDragStart", btn.StartMoving)
+    btn:SetScript("OnDragStop", btn.StopMovingOrSizing)
+    btn:SetClampedToScreen(true)
+    btn:SetScript("OnClick", function()
+        EasyEcho_ToggleRunning()
+    end)
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        if EasyEcho_IsRunning then
+            GameTooltip:SetText("EasyEcho: Running\nClick to stop.", 1, 0.3, 0.3, 1)
+        else
+            GameTooltip:SetText("EasyEcho: Stopped\nClick to start.", 0.3, 1, 0.3, 1)
+        end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    miniStartStopBtn = btn
+    UpdateButtonAppearance(btn)
+end
+
 function EasyEcho_UI.Init()
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     CreateHistoryFrame()
+    CreateMiniStartStopButton()
     EasyEcho_UI.UpdateHistoryUI()
 end
 
@@ -605,16 +664,20 @@ SLASH_EASYECHO2 = "/ee"
 
 SlashCmdList["EASYECHO"] = function(msg)
     msg = string.lower(msg or "")
-    
+
     if msg == "config" then
-        -- Open Config window independently
         if EasyEcho_Config and EasyEcho_Config.Toggle then
             EasyEcho_Config.Toggle()
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EasyEcho]|r Error: Config module not loaded!")
         end
+    elseif msg == "start" then
+        EasyEcho_Start()
+    elseif msg == "stop" then
+        EasyEcho_Stop()
+    elseif msg == "toggle" then
+        EasyEcho_ToggleRunning()
     else
-        -- Default: Toggle History window
         EasyEcho_UI.Toggle()
     end
 end
