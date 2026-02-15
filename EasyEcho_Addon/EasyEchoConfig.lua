@@ -100,11 +100,29 @@ function EasyEcho_Config.Refresh()
                 row.down:SetSize(45, 18) row.down:SetPoint("RIGHT", -38, 0)
                 row.del = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
                 row.del:SetSize(32, 18) row.del:SetText("X") row.del:SetPoint("RIGHT", -2, 0)
+                -- Clickable priority number overlay
+                row.prioBtn = CreateFrame("Button", nil, row)
+                row.prioBtn:SetSize(30, 25)
+                row.prioBtn:SetPoint("LEFT", 5, 0)
+                local ht = row.prioBtn:CreateTexture()
+                ht:SetAllPoints()
+                ht:SetTexture(1, 1, 0.5, 0.15)
+                row.prioBtn:SetHighlightTexture(ht)
+                -- Priority inline edit box
+                row.prioEdit = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+                row.prioEdit:SetSize(30, 20)
+                row.prioEdit:SetPoint("LEFT", 5, 0)
+                row.prioEdit:SetNumeric(true)
+                row.prioEdit:SetAutoFocus(false)
+                row.prioEdit:SetMaxLetters(3)
+                row.prioEdit:Hide()
                 rows[displayCount] = row
             end
 
             if currentView == "Profiles" then
                 row.prio:SetText("")
+                if row.prioBtn then row.prioBtn:Hide() end
+                if row.prioEdit then row.prioEdit:Hide() end
                 row.name:SetText(entry == EasyEchoSettings.ActiveProfile and "|cff00ff00" .. entry .. " (Active)|r" or entry)
                 row.quality:SetText("")
                 row.up:SetText("Load") row.up:Show()
@@ -121,11 +139,14 @@ function EasyEcho_Config.Refresh()
                 local sName, sQual = entry:match("^(.-)::(.+)$")
                 sName, sQual = sName or entry, sQual or "Any"
                 row.prio:SetText(string.format("%02d.", i))
+                row.prio:Show()
+                if row.prioEdit then row.prioEdit:Hide() end
                 row.name:SetText(sName)
                 row.up:SetText("Up") row.down:SetText("Down")
                 if currentView == "Ban" then
                     row.quality:SetText("BANNED") row.quality:SetTextColor(1, 0, 0)
                     row.up:Hide() row.down:Hide()
+                    if row.prioBtn then row.prioBtn:Hide() end
                 else
                     row.quality:SetText(sQual)
                     if sQual == "Epic" then row.quality:SetTextColor(0.64, 0.21, 0.93)
@@ -133,6 +154,34 @@ function EasyEcho_Config.Refresh()
                     elseif sQual == "Uncommon" then row.quality:SetTextColor(0.12, 1, 0)
                     else row.quality:SetTextColor(1, 1, 1) end
                     row.up:Show() row.down:Show()
+                    if row.prioBtn then
+                        row.prioBtn:Show()
+                        row.prioBtn:SetScript("OnClick", function()
+                            row.prio:Hide()
+                            row.prioEdit:SetText(tostring(i))
+                            row.prioEdit:Show()
+                            row.prioEdit:SetFocus()
+                        end)
+                        row.prioEdit:SetScript("OnEnterPressed", function(self)
+                            local newPos = tonumber(self:GetText())
+                            if newPos and newPos ~= i then
+                                newPos = math.max(1, math.min(newPos, #list))
+                                local removed = table.remove(list, i)
+                                table.insert(list, newPos, removed)
+                            end
+                            self:Hide()
+                            row.prio:Show()
+                            EasyEcho_Config.Refresh()
+                        end)
+                        row.prioEdit:SetScript("OnEscapePressed", function(self)
+                            self:Hide()
+                            row.prio:Show()
+                        end)
+                        row.prioEdit:SetScript("OnEditFocusLost", function(self)
+                            self:Hide()
+                            row.prio:Show()
+                        end)
+                    end
                 end
                 row.up:SetScript("OnClick", function() if i > 1 then table.insert(list, i-1, table.remove(list, i)) EasyEcho_Config.Refresh() end end)
                 row.down:SetScript("OnClick", function() if i < #list then table.insert(list, i+1, table.remove(list, i)) EasyEcho_Config.Refresh() end end)
