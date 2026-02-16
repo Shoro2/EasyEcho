@@ -12,10 +12,11 @@ local fontStringPool = {}
 local echoesFrame = nil
 local echoesContent = nil
 local echoesScrollBar = nil
-local echoesFontPool = {}
+local echoesRowPool = {}       -- pool of row frames (icon + text + hover)
 local echoesSortMode = "rarity"
 local echoesSearchText = ""
 local echoesSortDropDown = nil
+local echoesCountLabel = nil   -- "X echoes discovered" header label
 
 local MAX_REROLLS_UI = 10 
 
@@ -130,7 +131,7 @@ function EasyEcho_RecordEcho(spellId, quality)
     if not spellId then return end
     if not EasyEchoEchoDB then EasyEchoEchoDB = {} end
 
-    local name = GetSpellInfo(spellId)
+    local name, _, icon = GetSpellInfo(spellId)
     if not name or name == "" then return end
 
     local key = string.lower(name)
@@ -142,6 +143,8 @@ function EasyEcho_RecordEcho(spellId, quality)
         local tooltip = GetSpellTooltipText(spellId)
         EasyEchoEchoDB[key] = {
             name = name,
+            spellId = spellId,
+            icon = icon or "",
             tooltip = tooltip,
             class = playerClass or "UNKNOWN",
             qualities = {},
@@ -156,8 +159,16 @@ function EasyEcho_RecordEcho(spellId, quality)
     end
     EasyEchoEchoDB[key].lastSeen = time()
 
+    -- Backfill spellId and icon for older entries
+    if not EasyEchoEchoDB[key].spellId then
+        EasyEchoEchoDB[key].spellId = spellId
+    end
+    if not EasyEchoEchoDB[key].icon or EasyEchoEchoDB[key].icon == "" then
+        EasyEchoEchoDB[key].icon = icon or ""
+    end
+
     -- Update tooltip if it was empty before
-    if (not EasyEchoEchoDB[key].tooltip or EasyEchoEchoDB[key].tooltip == "") then
+    if not EasyEchoEchoDB[key].tooltip or EasyEchoEchoDB[key].tooltip == "" then
         EasyEchoEchoDB[key].tooltip = GetSpellTooltipText(spellId)
     end
 end
@@ -210,126 +221,194 @@ local function GetPrioRank(name, quality)
     return 99999
 end
 
-local function GetGrantedEchoesSorted()
-    local granted = nil
-    local locked = nil
-
-    if ProjectEbonhold and ProjectEbonhold.PerkService then
-        if ProjectEbonhold.PerkService.GetGrantedPerks then
-            granted = ProjectEbonhold.PerkService.GetGrantedPerks()
-        end
-        if ProjectEbonhold.PerkService.GetLockedPerks then
-            locked = ProjectEbonhold.PerkService.GetLockedPerks()
-        end
-    end
-
-    if not granted and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.grantedPerks then
-        granted = ProjectEbonhold.Perks.grantedPerks
-    end
-
-    if not locked and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.lockedPerks then
-        locked = ProjectEbonhold.Perks.lockedPerks
-    end
-
-    if type(granted) ~= "table" and type(locked) ~= "table" then
-        return {}
-    end
-
-    local grouped = {}
-    local groupedOrder = {}
-
-    local function AddPerk(perk)
-        if type(perk) ~= "table" then return end
-        local spellId = perk.spellId
-        if not spellId then return end
-
-        local name = GetSpellInfo(spellId) or ("Spell " .. tostring(spellId or "?"))
-        local quality = perk.quality or 0
-        local key = string.lower(name) .. "::" .. tostring(quality)
-
-        if not grouped[key] then
-            grouped[key] = {
-                name = name,
-                quality = quality,
-                count = 0,
-                prioRank = GetPrioRank(name, quality)
-            }
-            table.insert(groupedOrder, grouped[key])
-        end
-
-        local amount = tonumber(perk.stack) or 1
-        if amount < 1 then amount = 1 end
-        grouped[key].count = grouped[key].count + amount
-    end
-
-    local function AddFromContainer(container)
-        if type(container) ~= "table" then return end
-
-        if container[1] then
-            for _, perk in ipairs(container) do
-                AddPerk(perk)
-            end
-        else
-            for _, perkList in pairs(container) do
-                if type(perkList) == "table" then
-                    for _, perk in ipairs(perkList) do
-                        AddPerk(perk)
-                    end
-                end
+-- Helper: get the highest quality tier index from an echo's qualities table
+local function GetHighestQuality(qualities)
+    if not qualities then return 0 end
+    local best = 0
+    for qName, v in pairs(qualities) do
+        if v then
+            for idx, name in pairs(QUALITY_NAMES) do
+                if name == qName and idx > best then best = idx end
             end
         end
     end
+    return best
+end
 
-    AddFromContainer(granted)
-    AddFromContainer(locked)
+-- Helper: build quality badges string like "E R U"
+local function BuildQualityBadges(qualities)
+    if not qualities then return "" end
+    local order = { { 4, "L" }, { 3, "E" }, { 2, "R" }, { 1, "U" }, { 0, "C" } }
+    local parts = {}
+    for _, pair in ipairs(order) do
+        local qIdx, letter = pair[1], pair[2]
+        local qName = QUALITY_NAMES[qIdx]
+        if qName and qualities[qName] then
+            table.insert(parts, "|c" .. (QUALITY_COLORS[qIdx] or "ffffffff") .. letter .. "|r")
+        end
+    end
+    return table.concat(parts, " ")
+end
 
-    local filtered = {}
+local function GetEchoDBSorted()
+    if not EasyEchoEchoDB then return {} end
+
+    local entries = {}
     local searchLower = string.lower(echoesSearchText or "")
-    for _, entry in ipairs(groupedOrder) do
-        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true) then
-            table.insert(filtered, entry)
+
+    for key, data in pairs(EasyEchoEchoDB) do
+        if type(data) == "table" and data.name then
+            local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true))
+            if match then
+                local hq = GetHighestQuality(data.qualities)
+                table.insert(entries, {
+                    key = key,
+                    name = data.name,
+                    icon = data.icon or "",
+                    spellId = data.spellId,
+                    tooltip = data.tooltip or "",
+                    class = data.class or "UNKNOWN",
+                    qualities = data.qualities,
+                    highestQuality = hq,
+                    firstSeen = data.firstSeen or 0,
+                    lastSeen = data.lastSeen or 0,
+                    prioRank = GetPrioRank(data.name, hq)
+                })
+            end
         end
     end
 
-    table.sort(filtered, function(a, b)
+    table.sort(entries, function(a, b)
         if echoesSortMode == "name" then
-            if string.lower(a.name) ~= string.lower(b.name) then
-                return string.lower(a.name) < string.lower(b.name)
-            end
-            return a.quality > b.quality
-        elseif echoesSortMode == "count" then
-            if a.count ~= b.count then
-                return a.count > b.count
-            end
-            if a.quality ~= b.quality then
-                return a.quality > b.quality
+            return string.lower(a.name) < string.lower(b.name)
+        elseif echoesSortMode == "lastseen" then
+            if a.lastSeen ~= b.lastSeen then
+                return a.lastSeen > b.lastSeen
             end
             return string.lower(a.name) < string.lower(b.name)
         elseif echoesSortMode == "prio" then
             if a.prioRank ~= b.prioRank then
                 return a.prioRank < b.prioRank
             end
-            if a.quality ~= b.quality then
-                return a.quality > b.quality
+            if a.highestQuality ~= b.highestQuality then
+                return a.highestQuality > b.highestQuality
             end
             return string.lower(a.name) < string.lower(b.name)
-        else
-            if a.quality ~= b.quality then
-                return a.quality > b.quality
+        else -- rarity (default)
+            if a.highestQuality ~= b.highestQuality then
+                return a.highestQuality > b.highestQuality
             end
             return string.lower(a.name) < string.lower(b.name)
         end
     end)
 
-    return filtered
+    return entries
+end
+
+-- Acquire or create a row frame for the echo list
+local ROW_HEIGHT = 26
+local ROW_ICON_SIZE = 22
+
+local function AcquireEchoRow(parent, index)
+    if echoesRowPool[index] then return echoesRowPool[index] end
+
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(ROW_HEIGHT)
+    row:EnableMouse(true)
+
+    -- Icon
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(ROW_ICON_SIZE, ROW_ICON_SIZE)
+    icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.icon = icon
+
+    -- Name label
+    local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    nameText:SetPoint("LEFT", icon, "RIGHT", 6, 0)
+    nameText:SetWidth(200)
+    nameText:SetJustifyH("LEFT")
+    row.nameText = nameText
+
+    -- Quality badges
+    local badges = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    badges:SetPoint("LEFT", nameText, "RIGHT", 4, 0)
+    badges:SetWidth(80)
+    badges:SetJustifyH("LEFT")
+    row.badges = badges
+
+    -- Class label
+    local classText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    classText:SetPoint("LEFT", badges, "RIGHT", 4, 0)
+    classText:SetWidth(70)
+    classText:SetJustifyH("LEFT")
+    classText:SetTextColor(0.6, 0.6, 0.6)
+    row.classText = classText
+
+    -- Highlight texture
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints(row)
+    highlight:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    highlight:SetBlendMode("ADD")
+    highlight:SetAlpha(0.3)
+
+    row:SetScript("OnEnter", function(self)
+        if not self.echoData then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:ClearLines()
+
+        local data = self.echoData
+        local hq = GetHighestQuality(data.qualities)
+        local hColor = QUALITY_COLORS[hq] or "ffffffff"
+        GameTooltip:AddLine("|c" .. hColor .. data.name .. "|r")
+
+        -- Quality tiers line
+        local qLine = BuildQualityBadges(data.qualities)
+        if qLine ~= "" then
+            GameTooltip:AddLine("Qualities: " .. qLine, 1, 1, 1)
+        end
+
+        -- Class
+        if data.class and data.class ~= "UNKNOWN" then
+            GameTooltip:AddLine("Discovered as: " .. data.class, 0.5, 0.5, 0.5)
+        end
+
+        -- Timestamps
+        if data.firstSeen then
+            GameTooltip:AddLine("First seen: " .. date("%m/%d/%y %H:%M", data.firstSeen), 0.5, 0.5, 0.5)
+        end
+        if data.lastSeen then
+            GameTooltip:AddLine("Last seen: " .. date("%m/%d/%y %H:%M", data.lastSeen), 0.5, 0.5, 0.5)
+        end
+
+        -- Spell description
+        GameTooltip:AddLine(" ")
+        local desc = data.tooltip or ""
+        if desc == "" and data.spellId then
+            desc = GetSpellTooltipText(data.spellId)
+        end
+        if desc and desc ~= "" then
+            GameTooltip:AddLine(desc, 1, 0.82, 0, true)
+        else
+            GameTooltip:AddLine("No description available.", 0.5, 0.5, 0.5)
+        end
+
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    echoesRowPool[index] = row
+    return row
 end
 
 local function CreateEchoesFrame()
     if echoesFrame then return end
 
+    local FRAME_W = 560
+    local FRAME_H = 520
+
     local f = CreateFrame("Frame", "EasyEchoGrantedEchoesFrame", UIParent)
-    f:SetWidth(520)
-    f:SetHeight(460)
+    f:SetWidth(FRAME_W)
+    f:SetHeight(FRAME_H)
     f:SetPoint("CENTER", 120, 20)
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -344,12 +423,20 @@ local function CreateEchoesFrame()
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
 
+    -- Title
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", f, "TOP", 0, -15)
-    title:SetText("Granted Echoes")
+    title:SetText("Echo Database")
 
+    -- Discovered count label
+    echoesCountLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    echoesCountLabel:SetPoint("TOPLEFT", 18, -35)
+    echoesCountLabel:SetTextColor(0.7, 0.7, 0.7)
+    echoesCountLabel:SetText("")
+
+    -- Search
     local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    searchLabel:SetPoint("TOPLEFT", 18, -42)
+    searchLabel:SetPoint("TOPLEFT", 18, -52)
     searchLabel:SetText("Search")
 
     local searchBox = CreateFrame("EditBox", "EasyEchoEchoesSearchBox", f, "InputBoxTemplate")
@@ -361,6 +448,7 @@ local function CreateEchoesFrame()
         EasyEcho_UI.UpdateEchoListUI()
     end)
 
+    -- Sort dropdown
     local sortLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     sortLabel:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
     sortLabel:SetText("Sort")
@@ -372,7 +460,7 @@ local function CreateEchoesFrame()
         local options = {
             { text = "Rarity", value = "rarity" },
             { text = "Name", value = "name" },
-            { text = "Count", value = "count" },
+            { text = "Last Seen", value = "lastseen" },
             { text = "Prio List", value = "prio" }
         }
 
@@ -391,16 +479,43 @@ local function CreateEchoesFrame()
     UIDropDownMenu_SetText(sortDrop, "Rarity")
     echoesSortDropDown = sortDrop
 
+    -- Column headers
+    local headerY = -75
+    local hdrIcon = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrIcon:SetPoint("TOPLEFT", 18, headerY)
+    hdrIcon:SetWidth(ROW_ICON_SIZE + 6)
+    hdrIcon:SetText("")
+
+    local hdrName = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrName:SetPoint("TOPLEFT", 18 + ROW_ICON_SIZE + 6, headerY)
+    hdrName:SetWidth(200)
+    hdrName:SetJustifyH("LEFT")
+    hdrName:SetText("|cffbbbbbbName|r")
+
+    local hdrQual = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrQual:SetPoint("LEFT", hdrName, "RIGHT", 4, 0)
+    hdrQual:SetWidth(80)
+    hdrQual:SetJustifyH("LEFT")
+    hdrQual:SetText("|cffbbbbbbQualities|r")
+
+    local hdrClass = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrClass:SetPoint("LEFT", hdrQual, "RIGHT", 4, 0)
+    hdrClass:SetWidth(70)
+    hdrClass:SetJustifyH("LEFT")
+    hdrClass:SetText("|cffbbbbbbClass|r")
+
+    -- Scroll frame
     local sf = CreateFrame("ScrollFrame", "EasyEchoEchoesScrollFrame", f)
-    sf:SetPoint("TOPLEFT", 15, -72)
+    sf:SetPoint("TOPLEFT", 15, headerY - 14)
     sf:SetPoint("BOTTOMRIGHT", -35, 20)
 
     local content = CreateFrame("Frame", nil, sf)
-    content:SetWidth(460)
+    content:SetWidth(FRAME_W - 60)
     content:SetHeight(1)
     sf:SetScrollChild(content)
     echoesContent = content
 
+    -- Scrollbar
     local sb = CreateFrame("Slider", "EasyEchoEchoesScrollBar", f, "UIPanelScrollBarTemplate")
     sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 4, -16)
     sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 4, 16)
@@ -409,9 +524,19 @@ local function CreateEchoesFrame()
     sb:SetScript("OnValueChanged", function(self, value) sf:SetVerticalScroll(value) end)
     echoesScrollBar = sb
 
+    -- Mouse wheel scrolling
+    sf:EnableMouseWheel(true)
+    sf:SetScript("OnMouseWheel", function(self, delta)
+        local cur = sb:GetValue()
+        local step = ROW_HEIGHT * 3
+        sb:SetValue(cur - (delta * step))
+    end)
+
+    -- Close button
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -5, -5)
 
+    -- Back button
     local backBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     backBtn:SetSize(70, 20)
     backBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
@@ -862,11 +987,11 @@ end
 function EasyEcho_UI.UpdateEchoListUI()
     if not echoesFrame then CreateEchoesFrame() end
 
+    -- Ingest granted/locked perks into the persistent echo database
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
         ProjectEbonhold.PerkService.RequestGrantedPerks()
     end
 
-    -- Record all granted/locked perks to persistent echo database
     local function RecordGrantedPerks(container)
         if type(container) ~= "table" then return end
         if container[1] then
@@ -901,43 +1026,75 @@ function EasyEcho_UI.UpdateEchoListUI()
         if ProjectEbonhold.Perks.lockedPerks then RecordGrantedPerks(ProjectEbonhold.Perks.lockedPerks) end
     end
 
-    for _, fs in ipairs(echoesFontPool) do fs:Hide() end
+    -- Hide all existing rows
+    for _, row in ipairs(echoesRowPool) do row:Hide() end
 
-    local entries = GetGrantedEchoesSorted()
+    local entries = GetEchoDBSorted()
+    local contentWidth = echoesContent:GetWidth()
     local yOffset = 0
 
+    -- Update count label
+    local totalCount = 0
+    if EasyEchoEchoDB then
+        for _ in pairs(EasyEchoEchoDB) do totalCount = totalCount + 1 end
+    end
+    if echoesCountLabel then
+        echoesCountLabel:SetText(totalCount .. " echoes discovered" .. (#entries ~= totalCount and (" (" .. #entries .. " shown)") or ""))
+    end
+
     if #entries == 0 then
-        local emptyText = echoesFontPool[1] or echoesContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        if not echoesFontPool[1] then table.insert(echoesFontPool, emptyText) end
-        emptyText:SetPoint("TOPLEFT", 0, 0)
-        emptyText:SetWidth(450)
-        emptyText:SetJustifyH("LEFT")
-        emptyText:SetText("No echoes granted yet.")
-        emptyText:Show()
-        yOffset = 16
+        local row = AcquireEchoRow(echoesContent, 1)
+        row:SetPoint("TOPLEFT", 0, 0)
+        row:SetWidth(contentWidth)
+        row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        row.nameText:SetText("|cff888888No echoes discovered yet.|r")
+        row.badges:SetText("")
+        row.classText:SetText("")
+        row.echoData = nil
+        row:Show()
+        yOffset = ROW_HEIGHT
     else
         for i, entry in ipairs(entries) do
-            local text = echoesFontPool[i] or echoesContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            if not echoesFontPool[i] then table.insert(echoesFontPool, text) end
-            text:SetPoint("TOPLEFT", 0, -yOffset)
-            text:SetWidth(450)
-            text:SetJustifyH("LEFT")
+            local row = AcquireEchoRow(echoesContent, i)
+            row:SetPoint("TOPLEFT", 0, -yOffset)
+            row:SetWidth(contentWidth)
 
-            local qName = QUALITY_NAMES[entry.quality] or "Common"
-            local qColor = QUALITY_COLORS[entry.quality] or "ffffffff"
-            local countSuffix = ""
-            if (entry.count or 1) > 1 then
-                countSuffix = " |cffbbbbbbx" .. tostring(entry.count) .. "|r"
+            -- Icon
+            if entry.icon and entry.icon ~= "" then
+                row.icon:SetTexture(entry.icon)
+            elseif entry.spellId then
+                local _, _, spellIcon = GetSpellInfo(entry.spellId)
+                row.icon:SetTexture(spellIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            else
+                row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
             end
 
-            text:SetText("|c" .. qColor .. "[" .. qName .. "]|r " .. entry.name .. countSuffix)
-            text:Show()
-            yOffset = yOffset + 16
+            -- Name colored by highest quality
+            local hColor = QUALITY_COLORS[entry.highestQuality] or "ffffffff"
+            row.nameText:SetText("|c" .. hColor .. entry.name .. "|r")
+
+            -- Quality badges
+            row.badges:SetText(BuildQualityBadges(entry.qualities))
+
+            -- Class
+            local classDisplay = entry.class or ""
+            if classDisplay == "UNKNOWN" then classDisplay = "" end
+            if classDisplay ~= "" then
+                classDisplay = classDisplay:sub(1, 1) .. classDisplay:sub(2):lower()
+            end
+            row.classText:SetText(classDisplay)
+
+            -- Store data for tooltip
+            row.echoData = entry
+
+            row:Show()
+            yOffset = yOffset + ROW_HEIGHT
         end
     end
 
     echoesContent:SetHeight(yOffset)
-    local maxScroll = math.max(0, yOffset - 360)
+    local visibleH = echoesFrame:GetHeight() - 120
+    local maxScroll = math.max(0, yOffset - visibleH)
     echoesScrollBar:SetMinMaxValues(0, maxScroll)
     echoesScrollBar:SetValue(0)
 end
@@ -995,6 +1152,8 @@ SlashCmdList["EASYECHO"] = function(msg)
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EasyEcho]|r Error: Config module not loaded!")
         end
+    elseif msg == "echoes" or msg == "db" then
+        EasyEcho_UI.ToggleEchoList()
     elseif msg == "start" then
         EasyEcho_Start()
     elseif msg == "stop" then
