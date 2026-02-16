@@ -12,11 +12,19 @@ local fontStringPool = {}
 local echoesFrame = nil
 local echoesContent = nil
 local echoesScrollBar = nil
-local echoesRowPool = {}       -- pool of row frames (icon + text + hover)
+local echoesRowPool = {}       -- pool of row frames for DB view
 local echoesSortMode = "rarity"
 local echoesSearchText = ""
 local echoesSortDropDown = nil
 local echoesCountLabel = nil   -- "X echoes discovered" header label
+
+local grantedFrame = nil
+local grantedContent = nil
+local grantedScrollBar = nil
+local grantedRowPool = {}      -- pool of row frames for granted echoes view
+local grantedSortMode = "rarity"
+local grantedSearchText = ""
+local grantedSortDropDown = nil
 
 local MAX_REROLLS_UI = 10 
 
@@ -221,82 +229,64 @@ local function GetPrioRank(name, quality)
     return 99999
 end
 
--- Helper: get the highest quality tier index from an echo's qualities table
-local function GetHighestQuality(qualities)
-    if not qualities then return 0 end
-    local best = 0
-    for qName, v in pairs(qualities) do
-        if v then
-            for idx, name in pairs(QUALITY_NAMES) do
-                if name == qName and idx > best then best = idx end
-            end
-        end
-    end
-    return best
-end
-
--- Helper: build quality badges string like "E R U"
-local function BuildQualityBadges(qualities)
-    if not qualities then return "" end
-    local order = { { 4, "L" }, { 3, "E" }, { 2, "R" }, { 1, "U" }, { 0, "C" } }
-    local parts = {}
-    for _, pair in ipairs(order) do
-        local qIdx, letter = pair[1], pair[2]
-        local qName = QUALITY_NAMES[qIdx]
-        if qName and qualities[qName] then
-            table.insert(parts, "|c" .. (QUALITY_COLORS[qIdx] or "ffffffff") .. letter .. "|r")
-        end
-    end
-    return table.concat(parts, " ")
-end
-
+-- Returns one entry per quality tier per echo (flat list)
 local function GetEchoDBSorted()
     if not EasyEchoEchoDB then return {} end
 
     local entries = {}
     local searchLower = string.lower(echoesSearchText or "")
+    local qualityOrder = { 4, 3, 2, 1, 0 }
 
     for key, data in pairs(EasyEchoEchoDB) do
         if type(data) == "table" and data.name then
             local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true))
-            if match then
-                local hq = GetHighestQuality(data.qualities)
-                table.insert(entries, {
-                    key = key,
-                    name = data.name,
-                    icon = data.icon or "",
-                    spellId = data.spellId,
-                    tooltip = data.tooltip or "",
-                    class = data.class or "UNKNOWN",
-                    qualities = data.qualities,
-                    highestQuality = hq,
-                    firstSeen = data.firstSeen or 0,
-                    lastSeen = data.lastSeen or 0,
-                    prioRank = GetPrioRank(data.name, hq)
-                })
+            if match and data.qualities then
+                for _, qIdx in ipairs(qualityOrder) do
+                    local qName = QUALITY_NAMES[qIdx]
+                    if qName and data.qualities[qName] then
+                        table.insert(entries, {
+                            key = key,
+                            name = data.name,
+                            icon = data.icon or "",
+                            spellId = data.spellId,
+                            tooltip = data.tooltip or "",
+                            class = data.class or "UNKNOWN",
+                            quality = qIdx,
+                            firstSeen = data.firstSeen or 0,
+                            lastSeen = data.lastSeen or 0,
+                            prioRank = GetPrioRank(data.name, qIdx)
+                        })
+                    end
+                end
             end
         end
     end
 
     table.sort(entries, function(a, b)
         if echoesSortMode == "name" then
-            return string.lower(a.name) < string.lower(b.name)
+            if string.lower(a.name) ~= string.lower(b.name) then
+                return string.lower(a.name) < string.lower(b.name)
+            end
+            return a.quality > b.quality
         elseif echoesSortMode == "lastseen" then
             if a.lastSeen ~= b.lastSeen then
                 return a.lastSeen > b.lastSeen
             end
-            return string.lower(a.name) < string.lower(b.name)
+            if string.lower(a.name) ~= string.lower(b.name) then
+                return string.lower(a.name) < string.lower(b.name)
+            end
+            return a.quality > b.quality
         elseif echoesSortMode == "prio" then
             if a.prioRank ~= b.prioRank then
                 return a.prioRank < b.prioRank
             end
-            if a.highestQuality ~= b.highestQuality then
-                return a.highestQuality > b.highestQuality
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
             end
             return string.lower(a.name) < string.lower(b.name)
         else -- rarity (default)
-            if a.highestQuality ~= b.highestQuality then
-                return a.highestQuality > b.highestQuality
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
             end
             return string.lower(a.name) < string.lower(b.name)
         end
@@ -305,12 +295,132 @@ local function GetEchoDBSorted()
     return entries
 end
 
--- Acquire or create a row frame for the echo list
+-- Returns granted/locked perks for the current run, enriched with DB data
+local function GetGrantedEchoesSorted()
+    local granted = nil
+    local locked = nil
+
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then
+            granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+        end
+        if ProjectEbonhold.PerkService.GetLockedPerks then
+            locked = ProjectEbonhold.PerkService.GetLockedPerks()
+        end
+    end
+
+    if not granted and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.grantedPerks then
+        granted = ProjectEbonhold.Perks.grantedPerks
+    end
+    if not locked and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.lockedPerks then
+        locked = ProjectEbonhold.Perks.lockedPerks
+    end
+
+    if type(granted) ~= "table" and type(locked) ~= "table" then
+        return {}
+    end
+
+    local grouped = {}
+    local groupedOrder = {}
+
+    local function AddPerk(perk)
+        if type(perk) ~= "table" then return end
+        local spellId = perk.spellId
+        if not spellId then return end
+
+        local name = GetSpellInfo(spellId) or ("Spell " .. tostring(spellId or "?"))
+        local quality = perk.quality or 0
+        local key = string.lower(name) .. "::" .. tostring(quality)
+
+        if not grouped[key] then
+            -- Look up icon and tooltip from EchoDB
+            local dbKey = string.lower(name)
+            local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[dbKey]
+            local icon = ""
+            local tooltip = ""
+            if dbEntry then
+                icon = dbEntry.icon or ""
+                tooltip = dbEntry.tooltip or ""
+            end
+            if icon == "" then
+                local _, _, spellIcon = GetSpellInfo(spellId)
+                icon = spellIcon or ""
+            end
+
+            grouped[key] = {
+                name = name,
+                spellId = spellId,
+                quality = quality,
+                icon = icon,
+                tooltip = tooltip,
+                count = 0,
+                prioRank = GetPrioRank(name, quality)
+            }
+            table.insert(groupedOrder, grouped[key])
+        end
+
+        local amount = tonumber(perk.stack) or 1
+        if amount < 1 then amount = 1 end
+        grouped[key].count = grouped[key].count + amount
+    end
+
+    local function AddFromContainer(container)
+        if type(container) ~= "table" then return end
+        if container[1] then
+            for _, perk in ipairs(container) do
+                AddPerk(perk)
+            end
+        else
+            for _, perkList in pairs(container) do
+                if type(perkList) == "table" then
+                    for _, perk in ipairs(perkList) do
+                        AddPerk(perk)
+                    end
+                end
+            end
+        end
+    end
+
+    AddFromContainer(granted)
+    AddFromContainer(locked)
+
+    local filtered = {}
+    local searchLower = string.lower(grantedSearchText or "")
+    for _, entry in ipairs(groupedOrder) do
+        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true) then
+            table.insert(filtered, entry)
+        end
+    end
+
+    table.sort(filtered, function(a, b)
+        if grantedSortMode == "name" then
+            if string.lower(a.name) ~= string.lower(b.name) then
+                return string.lower(a.name) < string.lower(b.name)
+            end
+            return a.quality > b.quality
+        elseif grantedSortMode == "count" then
+            if a.count ~= b.count then return a.count > b.count end
+            if a.quality ~= b.quality then return a.quality > b.quality end
+            return string.lower(a.name) < string.lower(b.name)
+        elseif grantedSortMode == "prio" then
+            if a.prioRank ~= b.prioRank then return a.prioRank < b.prioRank end
+            if a.quality ~= b.quality then return a.quality > b.quality end
+            return string.lower(a.name) < string.lower(b.name)
+        else -- rarity
+            if a.quality ~= b.quality then return a.quality > b.quality end
+            return string.lower(a.name) < string.lower(b.name)
+        end
+    end)
+
+    return filtered
+end
+
+-- Shared row creation for both DB and granted views
 local ROW_HEIGHT = 26
 local ROW_ICON_SIZE = 22
 
-local function AcquireEchoRow(parent, index)
-    if echoesRowPool[index] then return echoesRowPool[index] end
+local function CreateRowFrame(parent, pool, index)
+    if pool[index] then return pool[index] end
 
     local row = CreateFrame("Button", nil, parent)
     row:SetHeight(ROW_HEIGHT)
@@ -329,20 +439,20 @@ local function AcquireEchoRow(parent, index)
     nameText:SetJustifyH("LEFT")
     row.nameText = nameText
 
-    -- Quality badges
-    local badges = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    badges:SetPoint("LEFT", nameText, "RIGHT", 4, 0)
-    badges:SetWidth(80)
-    badges:SetJustifyH("LEFT")
-    row.badges = badges
+    -- Quality / info column
+    local qualText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    qualText:SetPoint("LEFT", nameText, "RIGHT", 4, 0)
+    qualText:SetWidth(80)
+    qualText:SetJustifyH("LEFT")
+    row.qualText = qualText
 
-    -- Class label
-    local classText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    classText:SetPoint("LEFT", badges, "RIGHT", 4, 0)
-    classText:SetWidth(70)
-    classText:SetJustifyH("LEFT")
-    classText:SetTextColor(0.6, 0.6, 0.6)
-    row.classText = classText
+    -- Extra column (class in DB, count in granted)
+    local extraText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    extraText:SetPoint("LEFT", qualText, "RIGHT", 4, 0)
+    extraText:SetWidth(70)
+    extraText:SetJustifyH("LEFT")
+    extraText:SetTextColor(0.6, 0.6, 0.6)
+    row.extraText = extraText
 
     -- Highlight texture
     local highlight = row:CreateTexture(nil, "HIGHLIGHT")
@@ -351,32 +461,33 @@ local function AcquireEchoRow(parent, index)
     highlight:SetBlendMode("ADD")
     highlight:SetAlpha(0.3)
 
+    -- Tooltip (set per-row via echoData)
     row:SetScript("OnEnter", function(self)
         if not self.echoData then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:ClearLines()
 
         local data = self.echoData
-        local hq = GetHighestQuality(data.qualities)
-        local hColor = QUALITY_COLORS[hq] or "ffffffff"
-        GameTooltip:AddLine("|c" .. hColor .. data.name .. "|r")
+        local q = data.quality or 0
+        local qColor = QUALITY_COLORS[q] or "ffffffff"
+        local qName = QUALITY_NAMES[q] or "Common"
+        GameTooltip:AddLine("|c" .. qColor .. data.name .. "|r")
+        GameTooltip:AddLine(qName, 0.5, 0.5, 0.5)
 
-        -- Quality tiers line
-        local qLine = BuildQualityBadges(data.qualities)
-        if qLine ~= "" then
-            GameTooltip:AddLine("Qualities: " .. qLine, 1, 1, 1)
+        if data.count and data.count > 1 then
+            GameTooltip:AddLine("Stacks: " .. data.count, 1, 1, 1)
         end
 
         -- Class
-        if data.class and data.class ~= "UNKNOWN" then
+        if data.class and data.class ~= "" and data.class ~= "UNKNOWN" then
             GameTooltip:AddLine("Discovered as: " .. data.class, 0.5, 0.5, 0.5)
         end
 
         -- Timestamps
-        if data.firstSeen then
+        if data.firstSeen and data.firstSeen > 0 then
             GameTooltip:AddLine("First seen: " .. date("%m/%d/%y %H:%M", data.firstSeen), 0.5, 0.5, 0.5)
         end
-        if data.lastSeen then
+        if data.lastSeen and data.lastSeen > 0 then
             GameTooltip:AddLine("Last seen: " .. date("%m/%d/%y %H:%M", data.lastSeen), 0.5, 0.5, 0.5)
         end
 
@@ -396,7 +507,7 @@ local function AcquireEchoRow(parent, index)
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    echoesRowPool[index] = row
+    pool[index] = row
     return row
 end
 
@@ -406,7 +517,7 @@ local function CreateEchoesFrame()
     local FRAME_W = 560
     local FRAME_H = 520
 
-    local f = CreateFrame("Frame", "EasyEchoGrantedEchoesFrame", UIParent)
+    local f = CreateFrame("Frame", "EasyEchoEchoDBFrame", UIParent)
     f:SetWidth(FRAME_W)
     f:SetHeight(FRAME_H)
     f:SetPoint("CENTER", 120, 20)
@@ -496,7 +607,7 @@ local function CreateEchoesFrame()
     hdrQual:SetPoint("LEFT", hdrName, "RIGHT", 4, 0)
     hdrQual:SetWidth(80)
     hdrQual:SetJustifyH("LEFT")
-    hdrQual:SetText("|cffbbbbbbQualities|r")
+    hdrQual:SetText("|cffbbbbbbQuality|r")
 
     local hdrClass = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hdrClass:SetPoint("LEFT", hdrQual, "RIGHT", 4, 0)
@@ -547,6 +658,268 @@ local function CreateEchoesFrame()
 
     f:Hide()
     echoesFrame = f
+end
+
+-- =========================================================
+-- GRANTED ECHOES - Active run's echoes with DB-enriched data
+-- =========================================================
+local function CreateGrantedFrame()
+    if grantedFrame then return end
+
+    local FRAME_W = 560
+    local FRAME_H = 480
+
+    local f = CreateFrame("Frame", "EasyEchoGrantedEchoesFrame", UIParent)
+    f:SetWidth(FRAME_W)
+    f:SetHeight(FRAME_H)
+    f:SetPoint("CENTER", 120, 20)
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", f.StopMovingOrSizing)
+
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", f, "TOP", 0, -15)
+    title:SetText("Granted Echoes")
+
+    -- Search
+    local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    searchLabel:SetPoint("TOPLEFT", 18, -40)
+    searchLabel:SetText("Search")
+
+    local searchBox = CreateFrame("EditBox", "EasyEchoGrantedSearchBox", f, "InputBoxTemplate")
+    searchBox:SetSize(150, 20)
+    searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 6, 0)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnTextChanged", function(self)
+        grantedSearchText = self:GetText() or ""
+        EasyEcho_UI.UpdateGrantedUI()
+    end)
+
+    -- Sort dropdown
+    local sortLabel2 = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    sortLabel2:SetPoint("LEFT", searchBox, "RIGHT", 10, 0)
+    sortLabel2:SetText("Sort")
+
+    local sortDrop = CreateFrame("Frame", "EasyEchoGrantedSortDropDown", f, "UIDropDownMenuTemplate")
+    sortDrop:SetPoint("LEFT", sortLabel2, "RIGHT", -12, -2)
+    UIDropDownMenu_SetWidth(sortDrop, 110)
+    UIDropDownMenu_Initialize(sortDrop, function(self, level)
+        local options = {
+            { text = "Rarity", value = "rarity" },
+            { text = "Name", value = "name" },
+            { text = "Count", value = "count" },
+            { text = "Prio List", value = "prio" }
+        }
+        for _, option in ipairs(options) do
+            UIDropDownMenu_AddButton({
+                text = option.text,
+                value = option.value,
+                func = function(btn)
+                    grantedSortMode = btn.value
+                    UIDropDownMenu_SetText(sortDrop, option.text)
+                    EasyEcho_UI.UpdateGrantedUI()
+                end
+            }, level)
+        end
+    end)
+    UIDropDownMenu_SetText(sortDrop, "Rarity")
+    grantedSortDropDown = sortDrop
+
+    -- Column headers
+    local headerY = -63
+    local hdrIcon = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrIcon:SetPoint("TOPLEFT", 18, headerY)
+    hdrIcon:SetWidth(ROW_ICON_SIZE + 6)
+    hdrIcon:SetText("")
+
+    local hdrName = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrName:SetPoint("TOPLEFT", 18 + ROW_ICON_SIZE + 6, headerY)
+    hdrName:SetWidth(200)
+    hdrName:SetJustifyH("LEFT")
+    hdrName:SetText("|cffbbbbbbName|r")
+
+    local hdrQual = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrQual:SetPoint("LEFT", hdrName, "RIGHT", 4, 0)
+    hdrQual:SetWidth(80)
+    hdrQual:SetJustifyH("LEFT")
+    hdrQual:SetText("|cffbbbbbbQuality|r")
+
+    local hdrCount = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hdrCount:SetPoint("LEFT", hdrQual, "RIGHT", 4, 0)
+    hdrCount:SetWidth(70)
+    hdrCount:SetJustifyH("LEFT")
+    hdrCount:SetText("|cffbbbbbbCount|r")
+
+    -- Scroll frame
+    local sf = CreateFrame("ScrollFrame", "EasyEchoGrantedScrollFrame", f)
+    sf:SetPoint("TOPLEFT", 15, headerY - 14)
+    sf:SetPoint("BOTTOMRIGHT", -35, 20)
+
+    local content = CreateFrame("Frame", nil, sf)
+    content:SetWidth(FRAME_W - 60)
+    content:SetHeight(1)
+    sf:SetScrollChild(content)
+    grantedContent = content
+
+    -- Scrollbar
+    local sb = CreateFrame("Slider", "EasyEchoGrantedScrollBar", f, "UIPanelScrollBarTemplate")
+    sb:SetPoint("TOPLEFT", sf, "TOPRIGHT", 4, -16)
+    sb:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 4, 16)
+    sb:SetMinMaxValues(0, 0)
+    sb:SetValueStep(1)
+    sb:SetScript("OnValueChanged", function(self, value) sf:SetVerticalScroll(value) end)
+    grantedScrollBar = sb
+
+    -- Mouse wheel
+    sf:EnableMouseWheel(true)
+    sf:SetScript("OnMouseWheel", function(self, delta)
+        local cur = sb:GetValue()
+        local step = ROW_HEIGHT * 3
+        sb:SetValue(cur - (delta * step))
+    end)
+
+    -- Close button
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", -5, -5)
+
+    -- Back button
+    local backBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    backBtn:SetSize(70, 20)
+    backBtn:SetPoint("RIGHT", closeBtn, "LEFT", -2, 0)
+    backBtn:SetText("Back")
+    backBtn:SetScript("OnClick", function()
+        EasyEcho_UI.ShowMainWindow()
+    end)
+
+    f:Hide()
+    grantedFrame = f
+end
+
+function EasyEcho_UI.UpdateGrantedUI()
+    if not grantedFrame then CreateGrantedFrame() end
+
+    -- Ingest granted/locked perks into EchoDB
+    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
+        ProjectEbonhold.PerkService.RequestGrantedPerks()
+    end
+
+    local function RecordPerks(container)
+        if type(container) ~= "table" then return end
+        if container[1] then
+            for _, perk in ipairs(container) do
+                if type(perk) == "table" and perk.spellId then
+                    EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
+                end
+            end
+        else
+            for _, perkList in pairs(container) do
+                if type(perkList) == "table" then
+                    for _, perk in ipairs(perkList) do
+                        if type(perk) == "table" and perk.spellId then
+                            EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then RecordPerks(ProjectEbonhold.PerkService.GetGrantedPerks()) end
+        if ProjectEbonhold.PerkService.GetLockedPerks then RecordPerks(ProjectEbonhold.PerkService.GetLockedPerks()) end
+    end
+    if ProjectEbonhold and ProjectEbonhold.Perks then
+        if ProjectEbonhold.Perks.grantedPerks then RecordPerks(ProjectEbonhold.Perks.grantedPerks) end
+        if ProjectEbonhold.Perks.lockedPerks then RecordPerks(ProjectEbonhold.Perks.lockedPerks) end
+    end
+
+    -- Hide all rows
+    for _, row in ipairs(grantedRowPool) do row:Hide() end
+
+    local entries = GetGrantedEchoesSorted()
+    local contentWidth = grantedContent:GetWidth()
+    local yOffset = 0
+
+    if #entries == 0 then
+        local row = CreateRowFrame(grantedContent, grantedRowPool, 1)
+        row:SetPoint("TOPLEFT", 0, 0)
+        row:SetWidth(contentWidth)
+        row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+        row.nameText:SetText("|cff888888No echoes granted yet.|r")
+        row.qualText:SetText("")
+        row.extraText:SetText("")
+        row.echoData = nil
+        row:Show()
+        yOffset = ROW_HEIGHT
+    else
+        for i, entry in ipairs(entries) do
+            local row = CreateRowFrame(grantedContent, grantedRowPool, i)
+            row:SetPoint("TOPLEFT", 0, -yOffset)
+            row:SetWidth(contentWidth)
+
+            -- Icon from DB or live
+            if entry.icon and entry.icon ~= "" then
+                row.icon:SetTexture(entry.icon)
+            elseif entry.spellId then
+                local _, _, spellIcon = GetSpellInfo(entry.spellId)
+                row.icon:SetTexture(spellIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            else
+                row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+
+            -- Name colored by quality
+            local qColor = QUALITY_COLORS[entry.quality] or "ffffffff"
+            row.nameText:SetText("|c" .. qColor .. entry.name .. "|r")
+
+            -- Quality name
+            local qName = QUALITY_NAMES[entry.quality] or "Common"
+            row.qualText:SetText("|c" .. qColor .. qName .. "|r")
+
+            -- Count
+            local countStr = tostring(entry.count or 1)
+            if (entry.count or 1) > 1 then
+                countStr = "|cffbbbbbbx" .. countStr .. "|r"
+            else
+                countStr = "|cff888888x1|r"
+            end
+            row.extraText:SetText(countStr)
+
+            -- Store data for tooltip
+            row.echoData = entry
+
+            row:Show()
+            yOffset = yOffset + ROW_HEIGHT
+        end
+    end
+
+    grantedContent:SetHeight(yOffset)
+    local visibleH = grantedFrame:GetHeight() - 100
+    local maxScroll = math.max(0, yOffset - visibleH)
+    grantedScrollBar:SetMinMaxValues(0, maxScroll)
+    grantedScrollBar:SetValue(0)
+end
+
+function EasyEcho_UI.ToggleGrantedEchoes()
+    if not grantedFrame then CreateGrantedFrame() end
+    if grantedFrame:IsShown() then
+        grantedFrame:Hide()
+    else
+        if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
+        if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
+        local config = _G["EasyEchoConfigFrame"]
+        if config and config:IsShown() then config:Hide() end
+        grantedFrame:Show()
+        EasyEcho_UI.UpdateGrantedUI()
+    end
 end
 
 local function CreateHistoryFrame()
@@ -816,6 +1189,14 @@ local function CreateHistoryFrame()
 	echoesBtn:SetPoint("RIGHT", configBtn, "LEFT", -5, 0)
 	echoesBtn:SetText("Echoes")
 	echoesBtn:SetScript("OnClick", function()
+		EasyEcho_UI.ToggleGrantedEchoes()
+	end)
+
+	local dbBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	dbBtn:SetSize(50, 22)
+	dbBtn:SetPoint("RIGHT", echoesBtn, "LEFT", -5, 0)
+	dbBtn:SetText("DB")
+	dbBtn:SetScript("OnClick", function()
 		EasyEcho_UI.ToggleEchoList()
 	end)
     
@@ -982,49 +1363,13 @@ function EasyEcho_UI.ResetAllData(chatMessage)
     if echoesFrame and echoesFrame:IsShown() then
         EasyEcho_UI.UpdateEchoListUI()
     end
+    if grantedFrame and grantedFrame:IsShown() then
+        EasyEcho_UI.UpdateGrantedUI()
+    end
 end
 
 function EasyEcho_UI.UpdateEchoListUI()
     if not echoesFrame then CreateEchoesFrame() end
-
-    -- Ingest granted/locked perks into the persistent echo database
-    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
-        ProjectEbonhold.PerkService.RequestGrantedPerks()
-    end
-
-    local function RecordGrantedPerks(container)
-        if type(container) ~= "table" then return end
-        if container[1] then
-            for _, perk in ipairs(container) do
-                if type(perk) == "table" and perk.spellId then
-                    EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
-                end
-            end
-        else
-            for _, perkList in pairs(container) do
-                if type(perkList) == "table" then
-                    for _, perk in ipairs(perkList) do
-                        if type(perk) == "table" and perk.spellId then
-                            EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if ProjectEbonhold and ProjectEbonhold.PerkService then
-        if ProjectEbonhold.PerkService.GetGrantedPerks then
-            RecordGrantedPerks(ProjectEbonhold.PerkService.GetGrantedPerks())
-        end
-        if ProjectEbonhold.PerkService.GetLockedPerks then
-            RecordGrantedPerks(ProjectEbonhold.PerkService.GetLockedPerks())
-        end
-    end
-    if ProjectEbonhold and ProjectEbonhold.Perks then
-        if ProjectEbonhold.Perks.grantedPerks then RecordGrantedPerks(ProjectEbonhold.Perks.grantedPerks) end
-        if ProjectEbonhold.Perks.lockedPerks then RecordGrantedPerks(ProjectEbonhold.Perks.lockedPerks) end
-    end
 
     -- Hide all existing rows
     for _, row in ipairs(echoesRowPool) do row:Hide() end
@@ -1043,19 +1388,19 @@ function EasyEcho_UI.UpdateEchoListUI()
     end
 
     if #entries == 0 then
-        local row = AcquireEchoRow(echoesContent, 1)
+        local row = CreateRowFrame(echoesContent, echoesRowPool, 1)
         row:SetPoint("TOPLEFT", 0, 0)
         row:SetWidth(contentWidth)
         row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
         row.nameText:SetText("|cff888888No echoes discovered yet.|r")
-        row.badges:SetText("")
-        row.classText:SetText("")
+        row.qualText:SetText("")
+        row.extraText:SetText("")
         row.echoData = nil
         row:Show()
         yOffset = ROW_HEIGHT
     else
         for i, entry in ipairs(entries) do
-            local row = AcquireEchoRow(echoesContent, i)
+            local row = CreateRowFrame(echoesContent, echoesRowPool, i)
             row:SetPoint("TOPLEFT", 0, -yOffset)
             row:SetWidth(contentWidth)
 
@@ -1069,12 +1414,13 @@ function EasyEcho_UI.UpdateEchoListUI()
                 row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
             end
 
-            -- Name colored by highest quality
-            local hColor = QUALITY_COLORS[entry.highestQuality] or "ffffffff"
-            row.nameText:SetText("|c" .. hColor .. entry.name .. "|r")
+            -- Name colored by quality
+            local qColor = QUALITY_COLORS[entry.quality] or "ffffffff"
+            row.nameText:SetText("|c" .. qColor .. entry.name .. "|r")
 
-            -- Quality badges
-            row.badges:SetText(BuildQualityBadges(entry.qualities))
+            -- Quality name colored
+            local qName = QUALITY_NAMES[entry.quality] or "Common"
+            row.qualText:SetText("|c" .. qColor .. qName .. "|r")
 
             -- Class
             local classDisplay = entry.class or ""
@@ -1082,7 +1428,7 @@ function EasyEcho_UI.UpdateEchoListUI()
             if classDisplay ~= "" then
                 classDisplay = classDisplay:sub(1, 1) .. classDisplay:sub(2):lower()
             end
-            row.classText:SetText(classDisplay)
+            row.extraText:SetText(classDisplay)
 
             -- Store data for tooltip
             row.echoData = entry
@@ -1102,6 +1448,7 @@ end
 function EasyEcho_UI.ShowMainWindow()
     if not historyFrame then CreateHistoryFrame() end
     if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
+    if grantedFrame and grantedFrame:IsShown() then grantedFrame:Hide() end
 
     local config = _G["EasyEchoConfigFrame"]
     if config and config:IsShown() then
@@ -1118,6 +1465,7 @@ function EasyEcho_UI.ToggleEchoList()
         echoesFrame:Hide()
     else
         if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
+        if grantedFrame and grantedFrame:IsShown() then grantedFrame:Hide() end
         local config = _G["EasyEchoConfigFrame"]
         if config and config:IsShown() then config:Hide() end
         echoesFrame:Show()
@@ -1152,7 +1500,9 @@ SlashCmdList["EASYECHO"] = function(msg)
         else
             DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[EasyEcho]|r Error: Config module not loaded!")
         end
-    elseif msg == "echoes" or msg == "db" then
+    elseif msg == "echoes" then
+        EasyEcho_UI.ToggleGrantedEchoes()
+    elseif msg == "db" then
         EasyEcho_UI.ToggleEchoList()
     elseif msg == "start" then
         EasyEcho_Start()
