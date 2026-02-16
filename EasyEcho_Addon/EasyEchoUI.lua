@@ -173,6 +173,22 @@ local function GetTrackedSpellNames()
     return EasyEchoSettings.TrackedSpellOne, EasyEchoSettings.TrackedSpellTwo
 end
 
+local TRACK_QUALITY_ANY = -1
+
+local function GetTrackedSpellQuality()
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    if EasyEchoSettings.TrackedSpellQuality == nil then
+        EasyEchoSettings.TrackedSpellQuality = 2 -- default: Rare
+    end
+    return EasyEchoSettings.TrackedSpellQuality
+end
+
+local function SaveTrackedSpellQuality(q)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TrackedSpellQuality = q
+end
+
+
 local function SaveTrackedSpellNames(spellOne, spellTwo)
     if not EasyEchoSettings then EasyEchoSettings = {} end
     if spellOne and spellOne ~= "" then EasyEchoSettings.TrackedSpellOne = spellOne end
@@ -433,63 +449,189 @@ local function CreateHistoryFrame()
     local statsBg = f:CreateTexture(nil, "BACKGROUND")
     statsBg:SetTexture(0, 0, 0, 0.3)
     statsBg:SetPoint("TOPLEFT", 15, -35)
-    statsBg:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -15, -125)
+    statsBg:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -15, -110)
 
-    -- Helper to create aligned labels
-    local function CreateStatLabel(parent, x, y, width)
-        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    -- =========================================================
+    -- HEADER LAYOUT (2 columns) + INLINE EDIT ON LABEL CLICK
+    -- =========================================================
+    local PAD_X   = 25
+    local TOP_Y   = -45
+    local ROW_H   = 20
+    local COL_GAP = 35
+
+    local innerW = f:GetWidth() - (PAD_X * 2)
+    local colW   = (innerW - COL_GAP) / 2
+    local leftX  = PAD_X
+    local rightX = PAD_X + colW + COL_GAP
+
+    local function CreateStatLabel(parent, x, y, width, template)
+        local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlight")
         fs:SetPoint("TOPLEFT", x, y)
         fs:SetWidth(width)
-        fs:SetJustifyH("LEFT") -- FIXED: Explicit left justification
+        fs:SetJustifyH("LEFT")
         return fs
     end
 
-    -- Left Column
-    statRend = CreateStatLabel(f, 25, -45, 250)
-    statRend:SetText("Rend (Rare): 0")
-    
-    statEpicsPrio = CreateStatLabel(f, 25, -65, 250)
+        -- One shared inline editor (re-used for both labels)
+    -- IMPORTANT: In 3.3.5 OnEditFocusLost is unreliable when clicking the world.
+    -- We use a fullscreen click-catcher to reliably "click away" and save.
+    local clickCatcher = CreateFrame("Button", nil, UIParent)
+    clickCatcher:SetAllPoints(UIParent)
+    clickCatcher:EnableMouse(true)
+    clickCatcher:Hide()
+    clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
+    clickCatcher:SetFrameLevel(49)
+
+    local inlineEdit = CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
+    inlineEdit:Hide()
+    inlineEdit:SetAutoFocus(true)
+    inlineEdit:SetHeight(18)
+    inlineEdit:SetFrameStrata("FULLSCREEN_DIALOG")
+    inlineEdit:SetFrameLevel(50)
+
+    local function CommitInlineEdit(save)
+        if not inlineEdit.active then return end
+        inlineEdit.active = false
+
+        local which = inlineEdit.which
+        local label = inlineEdit.label
+        local text  = strtrim(inlineEdit:GetText() or "")
+
+        inlineEdit:Hide()
+        inlineEdit:ClearFocus()
+        clickCatcher:Hide()
+
+        if label then label:Show() end
+        if not save or text == "" then return end
+
+        local a, b = GetTrackedSpellNames()
+        if which == 1 then a = text else b = text end
+
+        SaveTrackedSpellNames(a, b)
+        EasyEcho_UI.UpdateHistoryUI()
+    end
+
+    inlineEdit:SetScript("OnEnterPressed", function() CommitInlineEdit(true) end)
+    inlineEdit:SetScript("OnEscapePressed", function() CommitInlineEdit(false) end)
+    inlineEdit:SetScript("OnEditFocusLost", function() CommitInlineEdit(true) end)
+
+    clickCatcher:SetScript("OnMouseDown", function()
+        -- any click anywhere -> save & close
+        CommitInlineEdit(true)
+    end)
+
+    local function AttachInlineEditClick(label, which)
+        -- Invisible click-catcher over the fontstring
+        local btn = CreateFrame("Button", nil, f)
+        btn:SetFrameLevel((f:GetFrameLevel() or 1) + 5)
+        btn:EnableMouse(true)
+        btn:RegisterForClicks("LeftButtonUp")
+
+        -- Make it at least as big as the label width/height
+        btn:SetPoint("TOPLEFT", label, "TOPLEFT", -2, 2)
+        btn:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 2, -2)
+
+        btn:SetScript("OnClick", function()
+            local a, b = GetTrackedSpellNames()
+            local cur = (which == 1) and (a or "") or (b or "")
+
+            inlineEdit:ClearAllPoints()
+            inlineEdit:SetWidth(math.min(colW, 260))
+            inlineEdit:SetPoint("LEFT", label, "LEFT", -6, 0)
+
+            inlineEdit.which = which
+            inlineEdit.label = label
+            inlineEdit.active = true
+
+            label:Hide()
+            inlineEdit:SetText(cur)
+            inlineEdit:Show()
+            clickCatcher:Show()
+            inlineEdit:SetFocus()
+            inlineEdit:HighlightText()
+        end)
+
+        return btn
+    end
+
+
+    -- Row 1: tracked spell counters (click name to edit)
+    statRend = CreateStatLabel(f, leftX, TOP_Y, colW, "GameFontHighlight")
+    statRend:SetText("Rend the Weak: 0")
+
+    statDouble = CreateStatLabel(f, rightX, TOP_Y, colW, "GameFontHighlight")
+    statDouble:SetText("Double Strike: 0")
+
+    AttachInlineEditClick(statRend, 1)
+    AttachInlineEditClick(statDouble, 2)
+
+    -- Row 2: epics (left/right)
+    local epicsY = TOP_Y - (ROW_H * 1)
+
+    statEpicsPrio = CreateStatLabel(f, leftX, epicsY, colW, "GameFontHighlight")
     statEpicsPrio:SetTextColor(0.64, 0.21, 0.93)
     statEpicsPrio:SetText("Epics (List): 0")
 
-    statRares = CreateStatLabel(f, 25, -85, 250) -- FIXED: Consistent 25 offset
-    statRares:SetTextColor(0, 0.44, 0.87)
-    statRares:SetText("Total Rares: 0")
-
-    -- Right Column
-    statDouble = CreateStatLabel(f, 300, -45, 250)
-    statDouble:SetText("Double Strike: 0")
-
-    statEpicsOther = CreateStatLabel(f, 300, -65, 250)
+    statEpicsOther = CreateStatLabel(f, rightX, epicsY, colW, "GameFontHighlight")
     statEpicsOther:SetTextColor(0.8, 0.4, 1.0)
     statEpicsOther:SetText("Epics (Other): 0")
 
-    statRerollsLeft = CreateStatLabel(f, 300, -85, 250)
+    -- Row 3: rares + rerolls (left/right)
+    local miscY = TOP_Y - (ROW_H * 2)
+
+    statRares = CreateStatLabel(f, leftX, miscY, colW, "GameFontHighlight")
+    statRares:SetTextColor(0, 0.44, 0.87)
+    statRares:SetText("Total Rares: 0")
+
+    statRerollsLeft = CreateStatLabel(f, rightX, miscY, colW, "GameFontHighlight")
     statRerollsLeft:SetTextColor(1, 0.5, 0)
     statRerollsLeft:SetText("Rerolls Left: 10")
+	
+	    -- =========================================================
+    -- Tracked spell quality dropdown (default = Rare)
+    -- Applies to BOTH tracked spells
+    -- =========================================================
 
-    local trackedOne, trackedTwo = GetTrackedSpellNames()
+    -- Make room to the right of "Rerolls Left"
+    statRerollsLeft:SetWidth(colW - 140)
 
-    trackedSpell1Box = CreateFrame("EditBox", "EasyEchoTrackedSpell1", f, "InputBoxTemplate")
-    trackedSpell1Box:SetSize(155, 18)
-    trackedSpell1Box:SetPoint("TOPLEFT", 145, -46)
-    trackedSpell1Box:SetAutoFocus(false)
-    trackedSpell1Box:SetText(trackedOne)
+    local trackDD = CreateFrame("Frame", "EasyEchoTrackedQualityDropDown", f, "UIDropDownMenuTemplate")
+    trackDD:SetPoint("TOPLEFT", statRerollsLeft, "TOPRIGHT", -18, 6)
+    UIDropDownMenu_SetWidth(trackDD, 110)
+    UIDropDownMenu_JustifyText(trackDD, "LEFT")
 
-    trackedSpell2Box = CreateFrame("EditBox", "EasyEchoTrackedSpell2", f, "InputBoxTemplate")
-    trackedSpell2Box:SetSize(155, 18)
-    trackedSpell2Box:SetPoint("TOPLEFT", 435, -46)
-    trackedSpell2Box:SetAutoFocus(false)
-    trackedSpell2Box:SetText(trackedTwo)
+    local function TrackQName(q)
+        if q == TRACK_QUALITY_ANY then return "Any" end
+        return QUALITY_NAMES[q] or "Rare"
+    end
 
-    local applyTrackedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    applyTrackedBtn:SetSize(55, 18)
-    applyTrackedBtn:SetPoint("TOPLEFT", 600, -46)
-    applyTrackedBtn:SetText("Apply")
-    applyTrackedBtn:SetScript("OnClick", function()
-        SaveTrackedSpellNames(trackedSpell1Box:GetText(), trackedSpell2Box:GetText())
-        EasyEcho_UI.UpdateHistoryUI()
+    UIDropDownMenu_Initialize(trackDD, function(self, level)
+        local info = UIDropDownMenu_CreateInfo()
+
+        local function add(text, val)
+            info.text = text
+            info.value = val
+            info.checked = (GetTrackedSpellQuality() == val)
+            info.func = function()
+                SaveTrackedSpellQuality(val)
+                UIDropDownMenu_SetText(trackDD, TrackQName(val))
+                EasyEcho_UI.UpdateHistoryUI()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+
+        -- order: most common use first
+        add("Rare", 2)
+        add("Epic", 3)
+        add("Uncommon", 1)
+        add("Common", 0)
+        if QUALITY_NAMES[4] then add("Legendary", 4) end
+        add("Any", TRACK_QUALITY_ANY)
     end)
+
+    UIDropDownMenu_SetText(trackDD, TrackQName(GetTrackedSpellQuality()))
+
+
 
     local sf = CreateFrame("ScrollFrame", "EasyEchoScrollFrame", f)
     sf:SetPoint("TOPLEFT", 15, -135) 
@@ -530,7 +672,6 @@ local function CreateHistoryFrame()
         EasyEcho_UI.ResetAllData("Everything has been reset.")
     end)
 	
-	-- Suche diesen Block in der Funktion CreateHistoryFrame() innerhalb der EasyEchoUI.lua
 	local configBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 	configBtn:SetSize(80, 22)
 	configBtn:SetPoint("TOPRIGHT", -35, -10)
@@ -579,11 +720,24 @@ local function CalculateStats()
                 if entry.isPrio then cEpicsPrio = cEpicsPrio + 1 else cEpicsOther = cEpicsOther + 1 end
             end
             if entry.quality == 2 then cRares = cRares + 1 end
-            if entry.name then
-                local n = string.lower(entry.name)
-                if tOneLower ~= "" and n:find(tOneLower, 1, true) then cOne = cOne + 1 end
-                if tTwoLower ~= "" and n:find(tTwoLower, 1, true) then cTwo = cTwo + 1 end
-            end
+            local trackQ = GetTrackedSpellQuality()
+
+			if entry.name then
+				local n = string.lower(entry.name)
+
+				if tOneLower ~= "" and n:find(tOneLower, 1, true) then
+					if trackQ == TRACK_QUALITY_ANY or entry.quality == trackQ then
+						cOne = cOne + 1
+					end
+				end
+
+				if tTwoLower ~= "" and n:find(tTwoLower, 1, true) then
+					if trackQ == TRACK_QUALITY_ANY or entry.quality == trackQ then
+						cTwo = cTwo + 1
+					end
+				end
+			end
+
         end
     end
     return cOne, cTwo, cEpicsPrio, cEpicsOther, cRares
@@ -594,8 +748,12 @@ function EasyEcho_UI.UpdateHistoryUI()
     local cntRend, cntDouble, cntEpicsPrio, cntEpicsOther, cntRares = CalculateStats()
     local trackedOne, trackedTwo = GetTrackedSpellNames()
 
-    statRend:SetText((trackedOne or "Spell 1") .. ": " .. cntRend)
-    statDouble:SetText((trackedTwo or "Spell 2") .. ": " .. cntDouble)
+    local trackQ = GetTrackedSpellQuality()
+	local qName = (trackQ == TRACK_QUALITY_ANY) and "Any" or (QUALITY_NAMES[trackQ] or "Rare")
+
+	statRend:SetText((trackedOne or "Spell 1") .. " (" .. qName .. "): " .. cntRend)
+	statDouble:SetText((trackedTwo or "Spell 2") .. " (" .. qName .. "): " .. cntDouble)
+
     if trackedSpell1Box and trackedSpell1Box:GetText() ~= trackedOne then trackedSpell1Box:SetText(trackedOne) end
     if trackedSpell2Box and trackedSpell2Box:GetText() ~= trackedTwo then trackedSpell2Box:SetText(trackedTwo) end
     statEpicsPrio:SetText("Epics (List): " .. cntEpicsPrio)

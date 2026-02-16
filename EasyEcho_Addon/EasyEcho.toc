@@ -4,4 +4,7 @@
 
 EasyEchoUI.lua
 EasyEchoConfig.lua
-EasyEcho.lua
+EasyEchoCore.lua
+EasyEchoEngine.lua
+EasyEchoHooks.lua
+EasyEcho_Main.lua
