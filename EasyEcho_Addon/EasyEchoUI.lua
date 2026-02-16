@@ -17,6 +17,7 @@ local echoesSortMode = "rarity"
 local echoesSearchText = ""
 local echoesSortDropDown = nil
 local echoesCountLabel = nil   -- "X echoes discovered" header label
+local echoesClassFilter = "All" -- class filter for DB view
 
 local grantedFrame = nil
 local grantedContent = nil
@@ -154,11 +155,29 @@ function EasyEcho_RecordEcho(spellId, quality)
             spellId = spellId,
             icon = icon or "",
             tooltip = tooltip,
-            class = playerClass or "UNKNOWN",
+            classes = {},
             qualities = {},
             firstSeen = time(),
             lastSeen = time()
         }
+    end
+
+    -- Migrate old single-class field to classes table
+    local entry = EasyEchoEchoDB[key]
+    if entry.class and not entry.classes then
+        entry.classes = {}
+    end
+    if entry.class then
+        if entry.class ~= "UNKNOWN" and entry.class ~= "" then
+            entry.classes[entry.class] = true
+        end
+        entry.class = nil
+    end
+
+    -- Record this class
+    if playerClass and playerClass ~= "UNKNOWN" and playerClass ~= "" then
+        if not entry.classes then entry.classes = {} end
+        entry.classes[playerClass] = true
     end
 
     -- Record this quality if not yet seen
@@ -240,7 +259,32 @@ local function GetEchoDBSorted()
     for key, data in pairs(EasyEchoEchoDB) do
         if type(data) == "table" and data.name then
             local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true))
-            if match and data.qualities then
+
+            -- Build classes set (handle migration from old single class field)
+            local classesSet = data.classes or {}
+            if data.class and not data.classes then
+                classesSet = {}
+                if data.class ~= "UNKNOWN" and data.class ~= "" then
+                    classesSet[data.class] = true
+                end
+            end
+
+            -- Apply class filter
+            local classMatch = true
+            if echoesClassFilter and echoesClassFilter ~= "All" then
+                classMatch = classesSet[echoesClassFilter] == true
+            end
+
+            if match and classMatch and data.qualities then
+                -- Build display string for all classes
+                local classNames = {}
+                for cls in pairs(classesSet) do
+                    table.insert(classNames, cls:sub(1, 1) .. cls:sub(2):lower())
+                end
+                table.sort(classNames)
+                local classDisplay = table.concat(classNames, ", ")
+                if classDisplay == "" then classDisplay = "" end
+
                 for _, qIdx in ipairs(qualityOrder) do
                     local qName = QUALITY_NAMES[qIdx]
                     if qName and data.qualities[qName] then
@@ -250,7 +294,8 @@ local function GetEchoDBSorted()
                             icon = data.icon or "",
                             spellId = data.spellId,
                             tooltip = data.tooltip or "",
-                            class = data.class or "UNKNOWN",
+                            classes = classesSet,
+                            classDisplay = classDisplay,
                             quality = qIdx,
                             firstSeen = data.firstSeen or 0,
                             lastSeen = data.lastSeen or 0,
@@ -478,9 +523,18 @@ local function CreateRowFrame(parent, pool, index)
             GameTooltip:AddLine("Stacks: " .. data.count, 1, 1, 1)
         end
 
-        -- Class
-        if data.class and data.class ~= "" and data.class ~= "UNKNOWN" then
-            GameTooltip:AddLine("Discovered as: " .. data.class, 0.5, 0.5, 0.5)
+        -- Classes
+        if data.classes then
+            local names = {}
+            for cls in pairs(data.classes) do
+                table.insert(names, cls:sub(1, 1) .. cls:sub(2):lower())
+            end
+            table.sort(names)
+            if #names > 0 then
+                GameTooltip:AddLine("Discovered as: " .. table.concat(names, ", "), 0.5, 0.5, 0.5)
+            end
+        elseif data.classDisplay and data.classDisplay ~= "" then
+            GameTooltip:AddLine("Discovered as: " .. data.classDisplay, 0.5, 0.5, 0.5)
         end
 
         -- Timestamps
@@ -506,6 +560,85 @@ local function CreateRowFrame(parent, pool, index)
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Right-click context menu for adding to prio/ban
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row:SetScript("OnClick", function(self, button)
+        if button ~= "RightButton" or not self.echoData then return end
+        local data = self.echoData
+        local qName = QUALITY_NAMES[data.quality] or "Common"
+
+        -- Create or reuse dropdown menu
+        if not EasyEcho_UI._contextMenu then
+            EasyEcho_UI._contextMenu = CreateFrame("Frame", "EasyEchoDBContextMenu", UIParent, "UIDropDownMenuTemplate")
+        end
+
+        UIDropDownMenu_Initialize(EasyEcho_UI._contextMenu, function(self, level)
+            -- Add to Priority List
+            local info1 = UIDropDownMenu_CreateInfo()
+            info1.text = "Add to Priority List (" .. qName .. ")"
+            info1.notCheckable = true
+            info1.func = function()
+                if EasyEchoSettings and EasyEchoSettings.PriorityList then
+                    local newEntry = data.name .. "::" .. qName
+                    table.insert(EasyEchoSettings.PriorityList, newEntry)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info1, level)
+
+            -- Add to Priority List (Any)
+            local info1a = UIDropDownMenu_CreateInfo()
+            info1a.text = "Add to Priority List (Any)"
+            info1a.notCheckable = true
+            info1a.func = function()
+                if EasyEchoSettings and EasyEchoSettings.PriorityList then
+                    local newEntry = data.name .. "::Any"
+                    table.insert(EasyEchoSettings.PriorityList, newEntry)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info1a, level)
+
+            -- Add to Ban List
+            local info2 = UIDropDownMenu_CreateInfo()
+            info2.text = "Add to Ban List"
+            info2.notCheckable = true
+            info2.func = function()
+                if EasyEchoSettings and EasyEchoSettings.BanList then
+                    -- Check for duplicates
+                    local already = false
+                    for _, b in ipairs(EasyEchoSettings.BanList) do
+                        if string.lower(b) == string.lower(data.name) then already = true; break end
+                    end
+                    if not already then
+                        table.insert(EasyEchoSettings.BanList, data.name)
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Ban List.")
+                        end
+                    else
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Ban List.")
+                        end
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info2, level)
+
+            -- Cancel
+            local info3 = UIDropDownMenu_CreateInfo()
+            info3.text = "Cancel"
+            info3.notCheckable = true
+            info3.func = function() end
+            UIDropDownMenu_AddButton(info3, level)
+        end, "MENU")
+
+        ToggleDropDownMenu(1, nil, EasyEcho_UI._contextMenu, "cursor", 0, 0)
+    end)
 
     pool[index] = row
     return row
@@ -589,6 +722,39 @@ local function CreateEchoesFrame()
     end)
     UIDropDownMenu_SetText(sortDrop, "Rarity")
     echoesSortDropDown = sortDrop
+
+    -- Class filter dropdown
+    local classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    classLabel:SetPoint("LEFT", sortDrop, "RIGHT", 0, 2)
+    classLabel:SetText("Class")
+
+    local classDrop = CreateFrame("Frame", "EasyEchoEchoesClassDropDown", f, "UIDropDownMenuTemplate")
+    classDrop:SetPoint("LEFT", classLabel, "RIGHT", -12, -2)
+    UIDropDownMenu_SetWidth(classDrop, 90)
+    UIDropDownMenu_Initialize(classDrop, function(self, level)
+        local classOptions = {
+            "All", "Warrior", "Paladin", "Hunter", "Rogue", "Priest",
+            "Death Knight", "Shaman", "Mage", "Warlock", "Druid"
+        }
+        for _, cls in ipairs(classOptions) do
+            UIDropDownMenu_AddButton({
+                text = cls,
+                value = cls,
+                func = function(btn)
+                    if btn.value == "All" then
+                        echoesClassFilter = "All"
+                    else
+                        -- Convert display name back to uppercase key
+                        echoesClassFilter = string.upper(btn.value):gsub(" ", "")
+                        if btn.value == "Death Knight" then echoesClassFilter = "DEATHKNIGHT" end
+                    end
+                    UIDropDownMenu_SetText(classDrop, cls)
+                    EasyEcho_UI.UpdateEchoListUI()
+                end
+            }, level)
+        end
+    end)
+    UIDropDownMenu_SetText(classDrop, "All")
 
     -- Column headers
     local headerY = -75
@@ -798,6 +964,16 @@ local function CreateGrantedFrame()
     backBtn:SetText("Back")
     backBtn:SetScript("OnClick", function()
         EasyEcho_UI.ShowMainWindow()
+    end)
+
+    -- Auto-refresh timer while frame is visible
+    f.refreshTimer = 0
+    f:SetScript("OnUpdate", function(self, elapsed)
+        self.refreshTimer = (self.refreshTimer or 0) + elapsed
+        if self.refreshTimer >= 2.0 then
+            self.refreshTimer = 0
+            EasyEcho_UI.UpdateGrantedUI()
+        end
     end)
 
     f:Hide()
@@ -1422,13 +1598,8 @@ function EasyEcho_UI.UpdateEchoListUI()
             local qName = QUALITY_NAMES[entry.quality] or "Common"
             row.qualText:SetText("|c" .. qColor .. qName .. "|r")
 
-            -- Class
-            local classDisplay = entry.class or ""
-            if classDisplay == "UNKNOWN" then classDisplay = "" end
-            if classDisplay ~= "" then
-                classDisplay = classDisplay:sub(1, 1) .. classDisplay:sub(2):lower()
-            end
-            row.extraText:SetText(classDisplay)
+            -- Classes (multiple)
+            row.extraText:SetText(entry.classDisplay or "")
 
             -- Store data for tooltip
             row.echoData = entry

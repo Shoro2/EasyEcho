@@ -168,12 +168,34 @@ local function ProcessChoices()
     -- 3) No priority match -> reroll if possible
     if HandleReroll(pickLevel, "No priority match") then return end
 
-    -- 4) Final fallback: left-most
-    local finalName = GetSpellInfo(choices[1].spellId)
-    if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost.")
+    -- 4) Final fallback: left-most non-banned, non-duplicate-one-time choice
+    local fallbackIdx = nil
+    for i, choice in ipairs(choices) do
+        local fname = GetSpellInfo(choice.spellId)
+        if fname and not EasyEcho.IsBanned(fname) then
+            if not (EasyEcho.ONE_TIME_MAP[string.lower(fname)] and EasyEcho.PlayerAlreadyHasPerk(fname)) then
+                fallbackIdx = i
+                break
+            end
+        end
     end
-    SelectSpell(1, finalName, choices[1].quality, pickLevel, false)
+    -- If everything is banned/skipped, pick first non-banned at least
+    if not fallbackIdx then
+        for i, choice in ipairs(choices) do
+            local fname = GetSpellInfo(choice.spellId)
+            if fname and not EasyEcho.IsBanned(fname) then
+                fallbackIdx = i
+                break
+            end
+        end
+    end
+    -- If everything is banned (shouldn't reach here due to step 2, but safety net)
+    if not fallbackIdx then fallbackIdx = 1 end
+    local finalName = GetSpellInfo(choices[fallbackIdx].spellId)
+    if DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost non-banned.")
+    end
+    SelectSpell(fallbackIdx, finalName, choices[fallbackIdx].quality, pickLevel, false)
 end
 
 -- Public API used by hooks / main

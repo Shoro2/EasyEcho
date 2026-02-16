@@ -88,10 +88,15 @@ function EasyEcho_Config.Refresh()
             if not row then
                 row = CreateFrame("Frame", nil, scrollChild)
                 row:SetSize(540, 25)
+                row:EnableMouse(true)
+                -- Icon
+                row.icon = row:CreateTexture(nil, "ARTWORK")
+                row.icon:SetSize(20, 20)
+                row.icon:SetPoint("LEFT", 5, 0)
                 row.prio = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                row.prio:SetPoint("LEFT", 5, 0) row.prio:SetWidth(30)
+                row.prio:SetPoint("LEFT", 28, 0) row.prio:SetWidth(30)
                 row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                row.name:SetPoint("LEFT", 40, 0) row.name:SetWidth(240)
+                row.name:SetPoint("LEFT", 60, 0) row.name:SetWidth(220)
                 row.quality = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
                 row.quality:SetPoint("LEFT", 285, 0) row.quality:SetWidth(80)
                 row.up = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -103,7 +108,7 @@ function EasyEcho_Config.Refresh()
                 -- Clickable priority number overlay
                 row.prioBtn = CreateFrame("Button", nil, row)
                 row.prioBtn:SetSize(30, 25)
-                row.prioBtn:SetPoint("LEFT", 5, 0)
+                row.prioBtn:SetPoint("LEFT", 28, 0)
                 local ht = row.prioBtn:CreateTexture()
                 ht:SetAllPoints()
                 ht:SetTexture(1, 1, 0.5, 0.15)
@@ -111,11 +116,26 @@ function EasyEcho_Config.Refresh()
                 -- Priority inline edit box
                 row.prioEdit = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
                 row.prioEdit:SetSize(30, 20)
-                row.prioEdit:SetPoint("LEFT", 5, 0)
+                row.prioEdit:SetPoint("LEFT", 28, 0)
                 row.prioEdit:SetNumeric(true)
                 row.prioEdit:SetAutoFocus(false)
                 row.prioEdit:SetMaxLetters(3)
                 row.prioEdit:Hide()
+                -- Tooltip on hover
+                row:SetScript("OnEnter", function(self)
+                    if not self.tooltipData then return end
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:ClearLines()
+                    GameTooltip:AddLine(self.tooltipData.name or "")
+                    if self.tooltipData.desc and self.tooltipData.desc ~= "" then
+                        GameTooltip:AddLine(self.tooltipData.desc, 1, 0.82, 0, true)
+                    end
+                    if self.tooltipData.status then
+                        GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
+                    end
+                    GameTooltip:Show()
+                end)
+                row:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 rows[displayCount] = row
             end
 
@@ -123,12 +143,14 @@ function EasyEcho_Config.Refresh()
                 row.prio:SetText("")
                 if row.prioBtn then row.prioBtn:Hide() end
                 if row.prioEdit then row.prioEdit:Hide() end
+                row.icon:SetTexture("Interface\\Icons\\INV_Misc_GroupNeedMore")
                 row.name:SetText(entry == EasyEchoSettings.ActiveProfile and "|cff00ff00" .. entry .. " (Active)|r" or entry)
                 row.quality:SetText("")
+                row.tooltipData = { name = entry, desc = "", status = entry == EasyEchoSettings.ActiveProfile and "Active Profile" or "" }
                 row.up:SetText("Load") row.up:Show()
                 row.up:SetScript("OnClick", function() EasyEcho_SwitchProfile(entry) end)
                 row.down:SetText("Save") row.down:Show()
-                row.down:SetScript("OnClick", function() 
+                row.down:SetScript("OnClick", function()
                     EasyEchoSettings.Profiles[entry].PriorityList = { unpack(EasyEchoSettings.PriorityList) }
                     EasyEchoSettings.Profiles[entry].BanList = { unpack(EasyEchoSettings.BanList) }
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. entry .. "' saved.")
@@ -142,6 +164,22 @@ function EasyEcho_Config.Refresh()
                 row.prio:Show()
                 if row.prioEdit then row.prioEdit:Hide() end
                 row.name:SetText(sName)
+
+                -- Look up icon and tooltip from EchoDB
+                local dbKey = string.lower(sName)
+                local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[dbKey]
+                if dbEntry and dbEntry.icon and dbEntry.icon ~= "" then
+                    row.icon:SetTexture(dbEntry.icon)
+                elseif dbEntry and dbEntry.spellId then
+                    local _, _, spIcon = GetSpellInfo(dbEntry.spellId)
+                    row.icon:SetTexture(spIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                else
+                    row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+                end
+                local tooltipDesc = (dbEntry and dbEntry.tooltip) or ""
+                local tooltipStatus = currentView == "Ban" and "|cffff0000Banned|r" or ("Priority #" .. i .. " (" .. sQual .. ")")
+                row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus }
+
                 row.up:SetText("Up") row.down:SetText("Down")
                 if currentView == "Ban" then
                     row.quality:SetText("BANNED") row.quality:SetTextColor(1, 0, 0)
@@ -213,23 +251,76 @@ end
 local function CreateIOFrame()
     local f = CreateFrame("Frame", "EasyEchoIOFrame", UIParent)
     f:SetSize(450, 400) f:SetPoint("CENTER") f:SetFrameStrata("DIALOG")
+    f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving) f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", tile=true, tileSize=32, edgeSize=32, insets={left=11, right=12, top=12, bottom=11}})
-    local eb = CreateFrame("EditBox", nil, CreateFrame("ScrollFrame", "EasyEchoIOScroll", f, "UIPanelScrollFrameTemplate"))
-    eb:GetParent():SetPoint("TOPLEFT", 20, -45) eb:GetParent():SetPoint("BOTTOMRIGHT", -40, 60)
-    eb:SetMultiLine(true) eb:SetWidth(380) eb:SetFontObject("ChatFontNormal") eb:GetParent():SetScrollChild(eb)
+
+    -- Title
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title:SetPoint("TOP", f, "TOP", 0, -15)
+    f.title:SetText("Export / Import")
+
+    -- Hint
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.hint:SetPoint("TOPLEFT", 20, -32)
+    f.hint:SetTextColor(0.7, 0.7, 0.7)
+    f.hint:SetText("Copy text to export, or paste & click Import to replace current list.")
+
+    local scrollFrame = CreateFrame("ScrollFrame", "EasyEchoIOScroll", f, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", 20, -48)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -40, 60)
+
+    local eb = CreateFrame("EditBox", nil, scrollFrame)
+    eb:SetMultiLine(true) eb:SetWidth(380) eb:SetFontObject("ChatFontNormal")
+    scrollFrame:SetScrollChild(eb)
     f.editBox = eb
+
     local save = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     save:SetSize(100, 25) save:SetPoint("BOTTOMLEFT", 20, 20) save:SetText("Import")
     save:SetScript("OnClick", function()
         local text = eb:GetText()
-        local target = (currentView == "Ban") and EasyEchoSettings.BanList or EasyEchoSettings.PriorityList
-        table.wipe(target) for line in text:gmatch("[^\r\n]+") do table.insert(target, line) end
-        EasyEcho_Config.Refresh() f:Hide()
+        if not text or text == "" then return end
+        local target
+        if currentView == "Ban" then
+            target = EasyEchoSettings.BanList
+        else
+            target = EasyEchoSettings.PriorityList
+        end
+        -- Clear and repopulate
+        for k = #target, 1, -1 do target[k] = nil end
+        for line in text:gmatch("[^\r\n]+") do
+            local trimmed = line:match("^%s*(.-)%s*$")
+            if trimmed and trimmed ~= "" then
+                table.insert(target, trimmed)
+            end
+        end
+        EasyEcho_Config.Refresh()
+        f:Hide()
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Imported " .. #target .. " entries into " .. (currentView == "Ban" and "Ban List" or "Priority List") .. ".")
+        end
     end)
+
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     closeBtn:SetSize(100, 25) closeBtn:SetPoint("BOTTOMRIGHT", -20, 20) closeBtn:SetText("Close")
     closeBtn:SetScript("OnClick", function() f:Hide() end)
     return f
+end
+
+local function PopulateIOFrame(ioFrame)
+    if not ioFrame or not ioFrame.editBox then return end
+    local source
+    if currentView == "Ban" then
+        source = EasyEchoSettings and EasyEchoSettings.BanList or {}
+        ioFrame.title:SetText("Export / Import - Ban List")
+    else
+        source = EasyEchoSettings and EasyEchoSettings.PriorityList or {}
+        ioFrame.title:SetText("Export / Import - Priority List")
+    end
+    local text = table.concat(source, "\n")
+    ioFrame.editBox:SetText(text)
+    ioFrame.editBox:HighlightText()
+    ioFrame.editBox:SetFocus()
 end
 
 function EasyEcho_Config.CreateFrame()
@@ -317,7 +408,11 @@ function EasyEcho_Config.CreateFrame()
     resetBtn:SetScript("OnClick", function() StaticPopup_Show("EASYECHO_CONFIRM_RESET") end)
     local ioBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     ioBtn:SetSize(110, 25) ioBtn:SetPoint("BOTTOMLEFT", 135, 20) ioBtn:SetText("Export/Import")
-    ioBtn:SetScript("OnClick", function() local ioF = EasyEchoIOFrame or CreateIOFrame() ioF:Show() end)
+    ioBtn:SetScript("OnClick", function()
+        local ioF = EasyEchoIOFrame or CreateIOFrame()
+        ioF:Show()
+        PopulateIOFrame(ioF)
+    end)
 
     configFrame = f f:Hide()
 end
