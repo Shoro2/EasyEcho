@@ -36,6 +36,8 @@ local statEpicsPrio = nil
 local statEpicsOther = nil 
 local statRares = nil
 local statRerollsLeft = nil
+local trackDDOne = nil   -- quality dropdown for tracked spell 1
+local trackDDTwo = nil   -- quality dropdown for tracked spell 2
 local trackedSpell1Box = nil
 local trackedSpell2Box = nil
 
@@ -213,17 +215,39 @@ end
 
 local TRACK_QUALITY_ANY = -1
 
-local function GetTrackedSpellQuality()
+local function GetTrackedSpellQualityOne()
     if not EasyEchoSettings then EasyEchoSettings = {} end
-    if EasyEchoSettings.TrackedSpellQuality == nil then
-        EasyEchoSettings.TrackedSpellQuality = 2 -- default: Rare
+    if EasyEchoSettings.TrackedSpellQualityOne == nil then
+        -- migrate from old shared setting
+        if EasyEchoSettings.TrackedSpellQuality ~= nil then
+            EasyEchoSettings.TrackedSpellQualityOne = EasyEchoSettings.TrackedSpellQuality
+        else
+            EasyEchoSettings.TrackedSpellQualityOne = 2 -- default: Rare
+        end
     end
-    return EasyEchoSettings.TrackedSpellQuality
+    return EasyEchoSettings.TrackedSpellQualityOne
 end
 
-local function SaveTrackedSpellQuality(q)
+local function GetTrackedSpellQualityTwo()
     if not EasyEchoSettings then EasyEchoSettings = {} end
-    EasyEchoSettings.TrackedSpellQuality = q
+    if EasyEchoSettings.TrackedSpellQualityTwo == nil then
+        if EasyEchoSettings.TrackedSpellQuality ~= nil then
+            EasyEchoSettings.TrackedSpellQualityTwo = EasyEchoSettings.TrackedSpellQuality
+        else
+            EasyEchoSettings.TrackedSpellQualityTwo = 2 -- default: Rare
+        end
+    end
+    return EasyEchoSettings.TrackedSpellQualityTwo
+end
+
+local function SaveTrackedSpellQualityOne(q)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TrackedSpellQualityOne = q
+end
+
+local function SaveTrackedSpellQualityTwo(q)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TrackedSpellQualityTwo = q
 end
 
 
@@ -1229,12 +1253,62 @@ local function CreateHistoryFrame()
     end
 
 
-    -- Row 1: tracked spell counters (click name to edit)
-    statRend = CreateStatLabel(f, leftX, TOP_Y, colW, "GameFontHighlight")
+    -- =========================================================
+    -- Quality name helper
+    -- =========================================================
+    local function TrackQName(q)
+        if q == TRACK_QUALITY_ANY then return "Any" end
+        return QUALITY_NAMES[q] or "Rare"
+    end
+
+    -- =========================================================
+    -- Helper: create a quality dropdown for a tracked spell
+    -- =========================================================
+    local function CreateTrackQualityDD(parent, name, anchor, getter, saver)
+        local dd = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
+        dd:SetPoint("TOPLEFT", anchor, "TOPRIGHT", -18, 6)
+        UIDropDownMenu_SetWidth(dd, 100)
+        UIDropDownMenu_JustifyText(dd, "LEFT")
+
+        UIDropDownMenu_Initialize(dd, function(self, level)
+            local info = UIDropDownMenu_CreateInfo()
+            local function add(text, val)
+                info.text = text
+                info.value = val
+                info.checked = (getter() == val)
+                info.func = function()
+                    saver(val)
+                    UIDropDownMenu_SetText(dd, TrackQName(val))
+                    EasyEcho_UI.UpdateHistoryUI()
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+            add("Rare", 2)
+            add("Epic", 3)
+            add("Uncommon", 1)
+            add("Common", 0)
+            if QUALITY_NAMES[4] then add("Legendary", 4) end
+            add("Any", TRACK_QUALITY_ANY)
+        end)
+
+        UIDropDownMenu_SetText(dd, TrackQName(getter()))
+        return dd
+    end
+
+    -- Row 1: tracked spell counters (click name to edit) + per-spell quality dropdown
+    local labelW = colW - 140  -- narrower labels to fit dropdown
+
+    statRend = CreateStatLabel(f, leftX, TOP_Y, labelW, "GameFontHighlight")
     statRend:SetText("Rend the Weak: 0")
 
-    statDouble = CreateStatLabel(f, rightX, TOP_Y, colW, "GameFontHighlight")
+    trackDDOne = CreateTrackQualityDD(f, "EasyEchoTrackedQualityDD1", statRend,
+        GetTrackedSpellQualityOne, SaveTrackedSpellQualityOne)
+
+    statDouble = CreateStatLabel(f, rightX, TOP_Y, labelW, "GameFontHighlight")
     statDouble:SetText("Double Strike: 0")
+
+    trackDDTwo = CreateTrackQualityDD(f, "EasyEchoTrackedQualityDD2", statDouble,
+        GetTrackedSpellQualityTwo, SaveTrackedSpellQualityTwo)
 
     AttachInlineEditClick(statRend, 1)
     AttachInlineEditClick(statDouble, 2)
@@ -1260,50 +1334,6 @@ local function CreateHistoryFrame()
     statRerollsLeft = CreateStatLabel(f, rightX, miscY, colW, "GameFontHighlight")
     statRerollsLeft:SetTextColor(1, 0.5, 0)
     statRerollsLeft:SetText("Rerolls Left: 10")
-	
-	    -- =========================================================
-    -- Tracked spell quality dropdown (default = Rare)
-    -- Applies to BOTH tracked spells
-    -- =========================================================
-
-    -- Make room to the right of "Rerolls Left"
-    statRerollsLeft:SetWidth(colW - 140)
-
-    local trackDD = CreateFrame("Frame", "EasyEchoTrackedQualityDropDown", f, "UIDropDownMenuTemplate")
-    trackDD:SetPoint("TOPLEFT", statRerollsLeft, "TOPRIGHT", -18, 6)
-    UIDropDownMenu_SetWidth(trackDD, 110)
-    UIDropDownMenu_JustifyText(trackDD, "LEFT")
-
-    local function TrackQName(q)
-        if q == TRACK_QUALITY_ANY then return "Any" end
-        return QUALITY_NAMES[q] or "Rare"
-    end
-
-    UIDropDownMenu_Initialize(trackDD, function(self, level)
-        local info = UIDropDownMenu_CreateInfo()
-
-        local function add(text, val)
-            info.text = text
-            info.value = val
-            info.checked = (GetTrackedSpellQuality() == val)
-            info.func = function()
-                SaveTrackedSpellQuality(val)
-                UIDropDownMenu_SetText(trackDD, TrackQName(val))
-                EasyEcho_UI.UpdateHistoryUI()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-
-        -- order: most common use first
-        add("Rare", 2)
-        add("Epic", 3)
-        add("Uncommon", 1)
-        add("Common", 0)
-        if QUALITY_NAMES[4] then add("Legendary", 4) end
-        add("Any", TRACK_QUALITY_ANY)
-    end)
-
-    UIDropDownMenu_SetText(trackDD, TrackQName(GetTrackedSpellQuality()))
 
 
 
@@ -1390,38 +1420,103 @@ end
 
 local function CalculateStats()
     local cOne, cTwo, cEpicsPrio, cEpicsOther, cRares = 0, 0, 0, 0, 0
-    if not EasyEchoHistoryDB then return 0,0,0,0,0 end
 
     local trackedOne, trackedTwo = GetTrackedSpellNames()
     local tOneLower = string.lower(trackedOne or "")
     local tTwoLower = string.lower(trackedTwo or "")
+    local trackQOne = GetTrackedSpellQualityOne()
+    local trackQTwo = GetTrackedSpellQualityTwo()
 
-    for _, entry in ipairs(EasyEchoHistoryDB) do
-        if entry.type == "SELECT" then
-            if entry.quality == 3 then
-                if entry.isPrio then cEpicsPrio = cEpicsPrio + 1 else cEpicsOther = cEpicsOther + 1 end
-            end
-            if entry.quality == 2 then cRares = cRares + 1 end
-            local trackQ = GetTrackedSpellQuality()
-
-			if entry.name then
-				local n = string.lower(entry.name)
-
-				if tOneLower ~= "" and n:find(tOneLower, 1, true) then
-					if trackQ == TRACK_QUALITY_ANY or entry.quality == trackQ then
-						cOne = cOne + 1
-					end
-				end
-
-				if tTwoLower ~= "" and n:find(tTwoLower, 1, true) then
-					if trackQ == TRACK_QUALITY_ANY or entry.quality == trackQ then
-						cTwo = cTwo + 1
-					end
-				end
-			end
-
+    -- Try authoritative server data first (GetGrantedPerks / GetLockedPerks)
+    local granted, locked = nil, nil
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then
+            granted = ProjectEbonhold.PerkService.GetGrantedPerks()
+        end
+        if ProjectEbonhold.PerkService.GetLockedPerks then
+            locked = ProjectEbonhold.PerkService.GetLockedPerks()
         end
     end
+    if not granted and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.grantedPerks then
+        granted = ProjectEbonhold.Perks.grantedPerks
+    end
+    if not locked and ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.lockedPerks then
+        locked = ProjectEbonhold.Perks.lockedPerks
+    end
+
+    local hasAPI = (type(granted) == "table" or type(locked) == "table")
+
+    if hasAPI then
+        local function ProcessPerk(perk)
+            if type(perk) ~= "table" or not perk.spellId then return end
+            local name = GetSpellInfo(perk.spellId)
+            if not name then return end
+            local quality = perk.quality or 0
+            local amount = tonumber(perk.stack) or 1
+            if amount < 1 then amount = 1 end
+
+            if quality == 3 then
+                local isPrio = GetPrioRank(name, quality) < 99999
+                if isPrio then cEpicsPrio = cEpicsPrio + amount else cEpicsOther = cEpicsOther + amount end
+            end
+            if quality == 2 then cRares = cRares + amount end
+
+            local nLower = string.lower(name)
+            if tOneLower ~= "" and nLower:find(tOneLower, 1, true) then
+                if trackQOne == TRACK_QUALITY_ANY or quality == trackQOne then
+                    cOne = cOne + amount
+                end
+            end
+            if tTwoLower ~= "" and nLower:find(tTwoLower, 1, true) then
+                if trackQTwo == TRACK_QUALITY_ANY or quality == trackQTwo then
+                    cTwo = cTwo + amount
+                end
+            end
+        end
+
+        local function ProcessContainer(container)
+            if type(container) ~= "table" then return end
+            if container[1] then
+                for _, perk in ipairs(container) do ProcessPerk(perk) end
+            else
+                for _, perkList in pairs(container) do
+                    if type(perkList) == "table" then
+                        for _, perk in ipairs(perkList) do ProcessPerk(perk) end
+                    end
+                end
+            end
+        end
+
+        ProcessContainer(granted)
+        ProcessContainer(locked)
+    else
+        -- Fallback: count from history log when API is unavailable
+        if not EasyEchoHistoryDB then return 0,0,0,0,0 end
+
+        for _, entry in ipairs(EasyEchoHistoryDB) do
+            if entry.type == "SELECT" then
+                if entry.quality == 3 then
+                    if entry.isPrio then cEpicsPrio = cEpicsPrio + 1 else cEpicsOther = cEpicsOther + 1 end
+                end
+                if entry.quality == 2 then cRares = cRares + 1 end
+
+                if entry.name then
+                    local n = string.lower(entry.name)
+                    if tOneLower ~= "" and n:find(tOneLower, 1, true) then
+                        if trackQOne == TRACK_QUALITY_ANY or entry.quality == trackQOne then
+                            cOne = cOne + 1
+                        end
+                    end
+                    if tTwoLower ~= "" and n:find(tTwoLower, 1, true) then
+                        if trackQTwo == TRACK_QUALITY_ANY or entry.quality == trackQTwo then
+                            cTwo = cTwo + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     return cOne, cTwo, cEpicsPrio, cEpicsOther, cRares
 end
 
@@ -1430,11 +1525,16 @@ function EasyEcho_UI.UpdateHistoryUI()
     local cntRend, cntDouble, cntEpicsPrio, cntEpicsOther, cntRares = CalculateStats()
     local trackedOne, trackedTwo = GetTrackedSpellNames()
 
-    local trackQ = GetTrackedSpellQuality()
-	local qName = (trackQ == TRACK_QUALITY_ANY) and "Any" or (QUALITY_NAMES[trackQ] or "Rare")
+    local trackQOne = GetTrackedSpellQualityOne()
+    local trackQTwo = GetTrackedSpellQualityTwo()
+    local qNameOne = (trackQOne == TRACK_QUALITY_ANY) and "Any" or (QUALITY_NAMES[trackQOne] or "Rare")
+    local qNameTwo = (trackQTwo == TRACK_QUALITY_ANY) and "Any" or (QUALITY_NAMES[trackQTwo] or "Rare")
 
-	statRend:SetText((trackedOne or "Spell 1") .. " (" .. qName .. "): " .. cntRend)
-	statDouble:SetText((trackedTwo or "Spell 2") .. " (" .. qName .. "): " .. cntDouble)
+    statRend:SetText((trackedOne or "Spell 1") .. ": " .. cntRend)
+    statDouble:SetText((trackedTwo or "Spell 2") .. ": " .. cntDouble)
+
+    if trackDDOne then UIDropDownMenu_SetText(trackDDOne, qNameOne) end
+    if trackDDTwo then UIDropDownMenu_SetText(trackDDTwo, qNameTwo) end
 
     if trackedSpell1Box and trackedSpell1Box:GetText() ~= trackedOne then trackedSpell1Box:SetText(trackedOne) end
     if trackedSpell2Box and trackedSpell2Box:GetText() ~= trackedTwo then trackedSpell2Box:SetText(trackedTwo) end
