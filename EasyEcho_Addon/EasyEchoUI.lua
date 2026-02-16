@@ -282,7 +282,8 @@ local function GetEchoDBSorted()
 
     for key, data in pairs(EasyEchoEchoDB) do
         if type(data) == "table" and data.name then
-            local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true))
+            local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true)
+                or (data.tooltip and string.lower(data.tooltip):find(searchLower, 1, true)))
 
             -- Build classes set (handle migration from old single class field)
             local classesSet = data.classes or {}
@@ -456,7 +457,8 @@ local function GetGrantedEchoesSorted()
     local filtered = {}
     local searchLower = string.lower(grantedSearchText or "")
     for _, entry in ipairs(groupedOrder) do
-        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true) then
+        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true)
+            or (entry.tooltip and string.lower(entry.tooltip):find(searchLower, 1, true)) then
             table.insert(filtered, entry)
         end
     end
