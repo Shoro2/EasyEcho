@@ -308,27 +308,68 @@ local function SetTooltipCalcSP(val)
     EasyEchoSettings.TooltipCalcSP = tonumber(val) or 0
 end
 
+local function GetTooltipCalcSta()
+    if not EasyEchoSettings then return 0 end
+    return EasyEchoSettings.TooltipCalcSta or 0
+end
+
+local function SetTooltipCalcSta(val)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TooltipCalcSta = tonumber(val) or 0
+end
+
+-- Query live character stats via WoW API
+local function QueryCharacterStats()
+    -- Attack Power
+    local base, posBuff, negBuff = UnitAttackPower("player")
+    if base then
+        SetTooltipCalcAP(base + (posBuff or 0) + (negBuff or 0))
+    end
+    -- Spell Power (max across all schools)
+    local maxSP = 0
+    if GetSpellBonusDamage then
+        for i = 2, 7 do
+            local val = GetSpellBonusDamage(i)
+            if val and val > maxSP then maxSP = val end
+        end
+    end
+    SetTooltipCalcSP(maxSP)
+    -- Stamina
+    if UnitStat then
+        local sta = UnitStat("player", 3)
+        SetTooltipCalcSta(sta or 0)
+    end
+end
+
 -- Replace @formula@ patterns with calculated numeric values.
--- Formulas can contain: sp (spell power), ap (attack power),
--- arithmetic operators (+, -, *, /), parentheses, and numbers.
--- Handles shorthand like "sp0.5" (= sp * 0.5) and "ap2" (= ap * 2).
+-- Supports: sp, ap, sta, lvl (always 80), flatNUM (literal number).
+-- Handles shorthand like "sp0.5" (= sp * 0.5), "lvl1.0625" (= 80 * 1.0625).
 local function EvaluateTooltipFormulas(text)
     if not text or text == "" then return text end
     if not GetTooltipCalcEnabled() then return text end
 
     local sp = GetTooltipCalcSP()
     local ap = GetTooltipCalcAP()
+    local sta = GetTooltipCalcSta()
 
     return text:gsub("@(.-)@", function(formula)
         local expr = formula
+        -- "flatNUM" is a literal constant: flat15 -> 15, flat100.5 -> 100.5
+        expr = expr:gsub("flat([%d%.]+)", "%1")
         -- Insert * between variable and adjacent number (e.g. "sp0.5" -> "sp*0.5")
         expr = expr:gsub("sp(%d)", "sp*%1")
         expr = expr:gsub("ap(%d)", "ap*%1")
+        expr = expr:gsub("lvl(%d)", "lvl*%1")
+        expr = expr:gsub("sta(%d)", "sta*%1")
         expr = expr:gsub("sp(%.%d)", "sp*%1")
         expr = expr:gsub("ap(%.%d)", "ap*%1")
+        expr = expr:gsub("lvl(%.%d)", "lvl*%1")
+        expr = expr:gsub("sta(%.%d)", "sta*%1")
         -- Replace variable names with actual values
         expr = expr:gsub("sp", tostring(sp))
         expr = expr:gsub("ap", tostring(ap))
+        expr = expr:gsub("lvl", "80")
+        expr = expr:gsub("sta", tostring(sta))
         -- Safely evaluate the arithmetic expression
         local func = loadstring("return " .. expr)
         if func then
@@ -791,7 +832,7 @@ local function CreateTooltipCalcConfigFrame(parent)
 
     local f = CreateFrame("Frame", "EasyEchoCalcConfigFrame", parent)
     f:SetWidth(220)
-    f:SetHeight(120)
+    f:SetHeight(160)
     f:SetPoint("TOPRIGHT", parent, "TOPLEFT", -2, 0)
     f:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -846,6 +887,38 @@ local function CreateTooltipCalcConfigFrame(parent)
     end)
     f.spBox = spBox
 
+    -- Stamina input
+    local staLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    staLabel:SetPoint("TOPLEFT", 12, -85)
+    staLabel:SetText("Stamina:")
+
+    local staBox = CreateFrame("EditBox", "EasyEchoCalcStaBox", f, "InputBoxTemplate")
+    staBox:SetSize(70, 20)
+    staBox:SetPoint("TOPLEFT", 130, -83)
+    staBox:SetAutoFocus(false)
+    staBox:SetNumeric(true)
+    staBox:SetText(tostring(GetTooltipCalcSta()))
+    staBox:SetScript("OnEnterPressed", function(self)
+        SetTooltipCalcSta(self:GetText())
+        self:ClearFocus()
+    end)
+    staBox:SetScript("OnEditFocusLost", function(self)
+        SetTooltipCalcSta(self:GetText())
+    end)
+    f.staBox = staBox
+
+    -- Query Character button
+    local queryBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    queryBtn:SetSize(196, 22)
+    queryBtn:SetPoint("TOPLEFT", 12, -110)
+    queryBtn:SetText("Query Character")
+    queryBtn:SetScript("OnClick", function()
+        QueryCharacterStats()
+        f.apBox:SetText(tostring(GetTooltipCalcAP()))
+        f.spBox:SetText(tostring(GetTooltipCalcSP()))
+        f.staBox:SetText(tostring(GetTooltipCalcSta()))
+    end)
+
     -- Close button
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -2, -2)
@@ -865,6 +938,7 @@ local function ToggleTooltipCalcConfig(parent)
         -- Refresh displayed values
         tooltipCalcConfigFrame.apBox:SetText(tostring(GetTooltipCalcAP()))
         tooltipCalcConfigFrame.spBox:SetText(tostring(GetTooltipCalcSP()))
+        tooltipCalcConfigFrame.staBox:SetText(tostring(GetTooltipCalcSta()))
         tooltipCalcConfigFrame:Show()
     end
 end
