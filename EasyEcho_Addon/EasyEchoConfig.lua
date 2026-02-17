@@ -98,7 +98,7 @@ function EasyEcho_Config.Refresh()
             local row = rows[displayCount]
             if not row then
                 row = CreateFrame("Frame", nil, scrollChild)
-                row:SetSize(540, 25)
+                row:SetSize(scrollChild:GetWidth(), 25)
                 row:EnableMouse(true)
                 -- Icon
                 row.icon = row:CreateTexture(nil, "ARTWORK")
@@ -149,6 +149,9 @@ function EasyEcho_Config.Refresh()
                 row:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 rows[displayCount] = row
             end
+
+            -- Always sync row width to current scrollChild width (adapts after resize)
+            row:SetWidth(scrollChild:GetWidth())
 
             if currentView == "Profiles" then
                 row.prio:SetText("")
@@ -428,6 +431,19 @@ function EasyEcho_Config.CreateFrame()
         ioF:Show()
         PopulateIOFrame(ioF)
     end)
+
+    -- Resize: update scrollChild width whenever the frame is resized
+    f:SetScript("OnSizeChanged", function(self)
+        if scrollChild then
+            scrollChild:SetWidth(self:GetWidth() - 60)
+        end
+    end)
+
+    if EasyEcho_UI and EasyEcho_UI.AddResizeHandles then
+        EasyEcho_UI.AddResizeHandles(f, 400, 400, function()
+            EasyEcho_Config.Refresh()
+        end)
+    end
 
     f:SetScript("OnHide", function()
         if EasyEcho_UI and EasyEcho_UI.UpdateShowHideButton then EasyEcho_UI.UpdateShowHideButton() end

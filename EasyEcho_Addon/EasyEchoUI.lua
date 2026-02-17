@@ -3,6 +3,59 @@
 -- =========================================================
 EasyEcho_UI = {}
 
+-- =========================================================
+-- RESIZE HANDLES: Shift+drag corners to resize any frame
+-- =========================================================
+local RESIZE_HANDLE_SIZE = 16
+
+-- Adds 4 corner resize handles to a frame.
+-- Hold Shift and drag any corner to resize.
+-- onResizeDone() is called once the mouse is released.
+function EasyEcho_UI.AddResizeHandles(frame, minW, minH, onResizeDone)
+    frame:SetResizable(true)
+    frame:SetMinResize(minW, minH)
+
+    local corners = {
+        { point = "BOTTOMRIGHT", sizingPoint = "BOTTOMRIGHT" },
+        { point = "BOTTOMLEFT",  sizingPoint = "BOTTOMLEFT"  },
+        { point = "TOPRIGHT",    sizingPoint = "TOPRIGHT"    },
+        { point = "TOPLEFT",     sizingPoint = "TOPLEFT"     },
+    }
+
+    for _, cfg in ipairs(corners) do
+        local handle = CreateFrame("Button", nil, frame)
+        handle:SetSize(RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE)
+        handle:SetPoint(cfg.point)
+        handle:SetFrameLevel((frame:GetFrameLevel() or 1) + 10)
+        handle:EnableMouse(true)
+
+        -- Corner indicator: semi-transparent white square
+        local tex = handle:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints()
+        tex:SetTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+        tex:SetAlpha(0.6)
+
+        local sp = cfg.sizingPoint
+        handle:SetScript("OnMouseDown", function(self, button)
+            if button == "LeftButton" and IsShiftKeyDown() then
+                frame:StartSizing(sp)
+            end
+        end)
+        handle:SetScript("OnMouseUp", function()
+            frame:StopMovingOrSizing()
+            if onResizeDone then onResizeDone() end
+        end)
+        handle:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+            GameTooltip:AddLine("Shift+Drag to Resize", 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        handle:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+        end)
+    end
+end
+
 local historyFrame = nil
 local historyScrollFrame = nil
 local historyContent = nil
@@ -1199,6 +1252,17 @@ local function CreateEchoesFrame()
         EasyEcho_UI.ShowMainWindow()
     end)
 
+    -- Resize: update scroll-content width whenever the frame is resized
+    f:SetScript("OnSizeChanged", function(self)
+        if echoesContent then
+            echoesContent:SetWidth(self:GetWidth() - 60)
+        end
+    end)
+
+    EasyEcho_UI.AddResizeHandles(f, 300, 300, function()
+        EasyEcho_UI.UpdateEchoListUI()
+    end)
+
     f:SetScript("OnHide", function() EasyEcho_UI.UpdateShowHideButton() end)
     f:Hide()
     echoesFrame = f
@@ -1552,6 +1616,17 @@ local function CreateGrantedFrame()
             self.refreshTimer = 0
             EasyEcho_UI.UpdateGrantedUI()
         end
+    end)
+
+    -- Resize: update scroll-content width whenever the frame is resized
+    f:SetScript("OnSizeChanged", function(self)
+        if grantedContent then
+            grantedContent:SetWidth(self:GetWidth() - 60)
+        end
+    end)
+
+    EasyEcho_UI.AddResizeHandles(f, 300, 300, function()
+        EasyEcho_UI.UpdateGrantedUI()
     end)
 
     f:SetScript("OnHide", function() EasyEcho_UI.UpdateShowHideButton() end)
@@ -2135,6 +2210,17 @@ local function CreateHistoryFrame()
 		EasyEcho_UI.ToggleEchoList()
 	end)
     
+    -- Resize: update scroll-content width whenever the frame is resized
+    f:SetScript("OnSizeChanged", function(self)
+        if historyContent then
+            historyContent:SetWidth(self:GetWidth() - 60)
+        end
+    end)
+
+    EasyEcho_UI.AddResizeHandles(f, 400, 400, function()
+        EasyEcho_UI.UpdateHistoryUI()
+    end)
+
     f:SetScript("OnHide", function() EasyEcho_UI.UpdateShowHideButton() end)
     f:Hide()
     historyFrame = f
@@ -2277,6 +2363,7 @@ function EasyEcho_UI.UpdateHistoryUI()
     for _, fs in pairs(fontStringPool) do fs:Hide() end
     for _, row in pairs(historyRowPool) do row:Hide() end
 
+    local contentWidth = historyContent:GetWidth()
     local yOffset = 0
     for i, entry in ipairs(EasyEchoHistoryDB or {}) do
         if entry.type == "SELECT" then
@@ -2284,7 +2371,7 @@ function EasyEcho_UI.UpdateHistoryUI()
             local row = CreateHistoryRowFrame(historyContent, historyRowPool, i)
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 0, -yOffset)
-            row:SetWidth(750)
+            row:SetWidth(contentWidth)
             row:SetHeight(HIST_ROW_HEIGHT)
 
             -- Icon from EchoDB
@@ -2318,7 +2405,7 @@ function EasyEcho_UI.UpdateHistoryUI()
             if not fontStringPool[i] then fontStringPool[i] = text end
             text:ClearAllPoints()
             text:SetPoint("TOPLEFT", 0, -yOffset)
-            text:SetWidth(750)
+            text:SetWidth(contentWidth)
             text:SetJustifyH("LEFT")
             local line = ""
             if entry.type == "OPTIONS" then
@@ -2332,7 +2419,8 @@ function EasyEcho_UI.UpdateHistoryUI()
         end
     end
     historyContent:SetHeight(yOffset)
-    local maxScroll = math.max(0, yOffset - 370)
+    local visibleH = historyFrame:GetHeight() - 150
+    local maxScroll = math.max(0, yOffset - visibleH)
     scrollBar:SetMinMaxValues(0, maxScroll)
     if maxScroll > 0 then scrollBar:SetValue(maxScroll) end
 end
