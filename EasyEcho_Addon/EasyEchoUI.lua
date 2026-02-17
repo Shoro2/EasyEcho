@@ -7,7 +7,8 @@ local historyFrame = nil
 local historyScrollFrame = nil
 local historyContent = nil
 local scrollBar = nil
-local fontStringPool = {} 
+local fontStringPool = {}
+local historyRowPool = {}  -- pool of row frames for history (SELECT entries get icon/tooltip/context menu)
 
 local echoesFrame = nil
 local echoesContent = nil
@@ -521,6 +522,10 @@ end
 -- Shared row creation for both DB and granted views
 local ROW_HEIGHT = 26
 local ROW_ICON_SIZE = 22
+
+-- History row dimensions
+local HIST_ROW_HEIGHT = 20
+local HIST_ICON_SIZE = 16
 
 local function CreateRowFrame(parent, pool, index)
     if pool[index] then return pool[index] end
@@ -1156,6 +1161,165 @@ function EasyEcho_UI.ToggleGrantedEchoes()
     end
 end
 
+-- =========================================================
+-- History row frame: icon + text + tooltip + right-click menu
+-- =========================================================
+local function CreateHistoryRowFrame(parent, pool, index)
+    if pool[index] then return pool[index] end
+
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(HIST_ROW_HEIGHT)
+    row:EnableMouse(true)
+
+    -- Icon (shown only for SELECT entries)
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(HIST_ICON_SIZE, HIST_ICON_SIZE)
+    icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+    row.icon = icon
+
+    -- Main text
+    local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+    text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    text:SetJustifyH("LEFT")
+    row.text = text
+
+    -- Highlight texture
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints(row)
+    highlight:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    highlight:SetBlendMode("ADD")
+    highlight:SetAlpha(0.3)
+    row.highlight = highlight
+
+    -- Tooltip (only for entries with echoData)
+    row:SetScript("OnEnter", function(self)
+        if not self.echoData then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:ClearLines()
+
+        local data = self.echoData
+        local q = data.quality or 0
+        local qColor = QUALITY_COLORS[q] or "ffffffff"
+        local qName = QUALITY_NAMES[q] or "Common"
+        GameTooltip:AddLine("|c" .. qColor .. data.name .. "|r")
+        GameTooltip:AddLine(qName, 0.5, 0.5, 0.5)
+
+        if data.isPrio then
+            GameTooltip:AddLine("Priority Pick", 0, 1, 0)
+        end
+
+        -- Look up extended info from EchoDB
+        local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[string.lower(data.name or "")]
+        if dbEntry then
+            if dbEntry.classes then
+                local names = {}
+                for cls in pairs(dbEntry.classes) do
+                    table.insert(names, cls:sub(1, 1) .. cls:sub(2):lower())
+                end
+                table.sort(names)
+                if #names > 0 then
+                    GameTooltip:AddLine("Discovered as: " .. table.concat(names, ", "), 0.5, 0.5, 0.5)
+                end
+            end
+
+            GameTooltip:AddLine(" ")
+            local desc = (dbEntry.tooltips and dbEntry.tooltips[qName]) or dbEntry.tooltip or ""
+            if desc == "" and dbEntry.spellId then
+                desc = GetSpellTooltipText(dbEntry.spellId)
+            end
+            if desc and desc ~= "" then
+                GameTooltip:AddLine(desc, 1, 0.82, 0, true)
+            else
+                GameTooltip:AddLine("No description available.", 0.5, 0.5, 0.5)
+            end
+        end
+
+        GameTooltip:Show()
+    end)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Right-click context menu for adding to prio/ban
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row:SetScript("OnClick", function(self, button)
+        if button ~= "RightButton" or not self.echoData then return end
+        local data = self.echoData
+        local qName = QUALITY_NAMES[data.quality] or "Common"
+
+        if not EasyEcho_UI._contextMenu then
+            EasyEcho_UI._contextMenu = CreateFrame("Frame", "EasyEchoDBContextMenu", UIParent, "UIDropDownMenuTemplate")
+        end
+
+        UIDropDownMenu_Initialize(EasyEcho_UI._contextMenu, function(self, level)
+            -- Add to Priority List (specific quality)
+            local info1 = UIDropDownMenu_CreateInfo()
+            info1.text = "Add to Priority List (" .. qName .. ")"
+            info1.notCheckable = true
+            info1.func = function()
+                if EasyEchoSettings and EasyEchoSettings.PriorityList then
+                    local newEntry = data.name .. "::" .. qName
+                    table.insert(EasyEchoSettings.PriorityList, newEntry)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info1, level)
+
+            -- Add to Priority List (Any)
+            local info1a = UIDropDownMenu_CreateInfo()
+            info1a.text = "Add to Priority List (Any)"
+            info1a.notCheckable = true
+            info1a.func = function()
+                if EasyEchoSettings and EasyEchoSettings.PriorityList then
+                    local newEntry = data.name .. "::Any"
+                    table.insert(EasyEchoSettings.PriorityList, newEntry)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info1a, level)
+
+            -- Add to Ban List
+            local info2 = UIDropDownMenu_CreateInfo()
+            info2.text = "Add to Ban List"
+            info2.notCheckable = true
+            info2.func = function()
+                if EasyEchoSettings and EasyEchoSettings.BanList then
+                    local already = false
+                    for _, b in ipairs(EasyEchoSettings.BanList) do
+                        if string.lower(b) == string.lower(data.name) then already = true; break end
+                    end
+                    if not already then
+                        table.insert(EasyEchoSettings.BanList, data.name)
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Ban List.")
+                        end
+                    else
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Ban List.")
+                        end
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info2, level)
+
+            -- Cancel
+            local info3 = UIDropDownMenu_CreateInfo()
+            info3.text = "Cancel"
+            info3.notCheckable = true
+            info3.func = function() end
+            UIDropDownMenu_AddButton(info3, level)
+        end, "MENU")
+
+        ToggleDropDownMenu(1, nil, EasyEcho_UI._contextMenu, "cursor", 0, 0)
+    end)
+
+    pool[index] = row
+    return row
+end
+
 local function CreateHistoryFrame()
     local f = CreateFrame("Frame", "EasyEchoHistoryFrame", UIParent)
     f:SetWidth(800)
@@ -1577,20 +1741,63 @@ function EasyEcho_UI.UpdateHistoryUI()
     statRares:SetText("Total Rares: " .. cntRares)
     statRerollsLeft:SetText("Rerolls Left: " .. math.max(0, liveTotalRerolls - liveUsedRerolls))
 
-    for _, fs in ipairs(fontStringPool) do fs:Hide() end
+    -- Hide old fontstring pool (legacy) and row pool (use pairs for sparse indices)
+    for _, fs in pairs(fontStringPool) do fs:Hide() end
+    for _, row in pairs(historyRowPool) do row:Hide() end
+
     local yOffset = 0
     for i, entry in ipairs(EasyEchoHistoryDB or {}) do
-        local text = fontStringPool[i] or historyContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        if not fontStringPool[i] then table.insert(fontStringPool, text) end
-        text:SetPoint("TOPLEFT", 0, -yOffset)
-        text:SetWidth(760)
-        text:SetJustifyH("LEFT")
-        local line = ""
-        if entry.type == "OPTIONS" then line = "|cff666666[#"..entry.level.." Offers]: "..entry.text.."|r"
-        elseif entry.type == "SELECT" then line = "|cff999999[#"..entry.level.."]|r |c".. (QUALITY_COLORS[entry.quality] or "ffffffff") ..">>> "..entry.name.." ("..(QUALITY_NAMES[entry.quality] or "?")..")|r"
-        elseif entry.type == "REROLL" then line = "|cff999999[#"..entry.level.."]|r |cffff0000[Reroll "..entry.countStr.."] ".. (entry.reason or "") .."|r" end
-        text:SetText(line) text:Show()
-        yOffset = yOffset + 14
+        if entry.type == "SELECT" then
+            -- SELECT entries use row frames with icon, tooltip, and context menu
+            local row = CreateHistoryRowFrame(historyContent, historyRowPool, i)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", 0, -yOffset)
+            row:SetWidth(750)
+            row:SetHeight(HIST_ROW_HEIGHT)
+
+            -- Icon from EchoDB
+            local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[string.lower(entry.name or "")]
+            if dbEntry and dbEntry.icon and dbEntry.icon ~= "" then
+                row.icon:SetTexture(dbEntry.icon)
+            elseif dbEntry and dbEntry.spellId then
+                local _, _, spellIcon = GetSpellInfo(dbEntry.spellId)
+                row.icon:SetTexture(spellIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            else
+                row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+            row.icon:Show()
+
+            -- Position text after icon
+            row.text:ClearAllPoints()
+            row.text:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+            row.text:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+
+            local qColor = QUALITY_COLORS[entry.quality] or "ffffffff"
+            local qName = QUALITY_NAMES[entry.quality] or "?"
+            row.text:SetText("|cff999999[#" .. entry.level .. "]|r |c" .. qColor .. ">>> " .. entry.name .. " (" .. qName .. ")|r")
+
+            row.echoData = entry
+            row.highlight:Show()
+            row:Show()
+            yOffset = yOffset + HIST_ROW_HEIGHT
+        else
+            -- OPTIONS and REROLL entries use simple font strings
+            local text = fontStringPool[i] or historyContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            if not fontStringPool[i] then fontStringPool[i] = text end
+            text:ClearAllPoints()
+            text:SetPoint("TOPLEFT", 0, -yOffset)
+            text:SetWidth(750)
+            text:SetJustifyH("LEFT")
+            local line = ""
+            if entry.type == "OPTIONS" then
+                line = "|cff666666[#" .. entry.level .. " Offers]: " .. entry.text .. "|r"
+            elseif entry.type == "REROLL" then
+                line = "|cff999999[#" .. entry.level .. "]|r |cffff0000[Reroll " .. entry.countStr .. "] " .. (entry.reason or "") .. "|r"
+            end
+            text:SetText(line)
+            text:Show()
+            yOffset = yOffset + 14
+        end
     end
     historyContent:SetHeight(yOffset)
     local maxScroll = math.max(0, yOffset - 370)
