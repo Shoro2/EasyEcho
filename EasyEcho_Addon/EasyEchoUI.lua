@@ -336,8 +336,14 @@ local function GetEchoDBSorted()
                     table.insert(classNames, cls:sub(1, 1) .. cls:sub(2):lower())
                 end
                 table.sort(classNames)
-                local classDisplay = table.concat(classNames, ", ")
-                if classDisplay == "" then classDisplay = "" end
+                local classDisplay
+                if #classNames > 1 then
+                    classDisplay = "Mehrere"
+                elseif #classNames == 1 then
+                    classDisplay = classNames[1]
+                else
+                    classDisplay = ""
+                end
 
                 for _, qIdx in ipairs(qualityOrder) do
                     local qName = QUALITY_NAMES[qIdx]
