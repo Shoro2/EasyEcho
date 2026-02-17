@@ -107,7 +107,7 @@ When the server offers 3 perk choices, EasyEcho will:
 
 ---
 
-## UI Windows — Detailed Guide
+## Detailed Guide & Functions
 
 EasyEcho provides two main windows, each with multiple tabs.
 All windows are **movable** (drag the title bar) and **resizable** (hold **Shift** and drag any corner handle).
@@ -131,9 +131,9 @@ Displays a **scrollable log** of every perk pick during the current and past run
 
 | Color | Type | Description |
 |-------|------|-------------|
-| Gray | `OPTIONS` | The three choices offered by the server for pick #N |
-| Green | `SELECT` | The perk EasyEcho selected (or you selected manually) |
-| Yellow | `REROLL` | A reroll was triggered; shows reason and reroll count |
+| Gray  | `OPTIONS` | The three choices offered by the server for pick #N |
+| Green | `SELECT`  | The perk EasyEcho selected (or you selected manually) |
+| Red   | `REROLL`  | A reroll was triggered; shows reason and reroll count |
 
 **Columns per entry:**
 - **Pick #** — the sequential pick counter (matches your in-run level)
