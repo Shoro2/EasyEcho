@@ -22,6 +22,15 @@ eventFrame:SetScript("OnEvent", function(_, event)
         if EasyEcho.InitializeSettings then EasyEcho.InitializeSettings() end
         if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end
 
+        -- Restore character-specific profile (silent, no chat message)
+        if EasyEchoSettings.CharacterProfiles then
+            local charKey = (UnitName("player") or "") .. "-" .. (GetRealmName() or "")
+            local charProfile = EasyEchoSettings.CharacterProfiles[charKey]
+            if charProfile and EasyEchoSettings.Profiles and EasyEchoSettings.Profiles[charProfile] then
+                EasyEcho_SwitchProfile(charProfile, true)
+            end
+        end
+
         if EasyEcho_UI and EasyEcho_UI.Init then EasyEcho_UI.Init() end
         if EasyEcho.SyncRerollStatus then EasyEcho.SyncRerollStatus() end
 

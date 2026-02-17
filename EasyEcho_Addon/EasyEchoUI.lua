@@ -69,6 +69,7 @@ function EasyEcho_UI.UpdateStartStopButton()
 end
 
 local miniShowUiBtn = nil
+local lastShownUI = "history"  -- tracks which UI was last opened
 
 local function CreateMiniStartStopButton()
     if miniStartStopBtn then
@@ -95,13 +96,59 @@ local function CreateMiniStartStopButton()
     showBtn:SetPoint("LEFT", btn, "RIGHT", 4, 0)
     showBtn:SetText("Show UI")
     showBtn:SetScript("OnClick", function()
-        if EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
-            EasyEcho_UI.ShowMainWindow()
-        elseif EasyEcho_UI and EasyEcho_UI.Toggle then
-            EasyEcho_UI.Toggle()
-        end
+        EasyEcho_UI.ToggleLastUI()
     end)
     miniShowUiBtn = showBtn
+end
+
+-- =========================================================
+-- SHOW/HIDE UI TOGGLE HELPERS
+-- =========================================================
+local function IsAnyUIShown()
+    if historyFrame and historyFrame:IsShown() then return true end
+    if echoesFrame and echoesFrame:IsShown() then return true end
+    if grantedFrame and grantedFrame:IsShown() then return true end
+    local config = _G["EasyEchoConfigFrame"]
+    if config and config:IsShown() then return true end
+    return false
+end
+
+local function HideAllUI()
+    if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
+    if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
+    if grantedFrame and grantedFrame:IsShown() then grantedFrame:Hide() end
+    local config = _G["EasyEchoConfigFrame"]
+    if config and config:IsShown() then config:Hide() end
+end
+
+function EasyEcho_UI.SetLastShownUI(name)
+    lastShownUI = name
+end
+
+function EasyEcho_UI.UpdateShowHideButton()
+    if not miniShowUiBtn then return end
+    if IsAnyUIShown() then
+        miniShowUiBtn:SetText("Hide UI")
+    else
+        miniShowUiBtn:SetText("Show UI")
+    end
+end
+
+function EasyEcho_UI.ToggleLastUI()
+    if IsAnyUIShown() then
+        HideAllUI()
+        EasyEcho_UI.UpdateShowHideButton()
+    else
+        if lastShownUI == "echoes" then
+            EasyEcho_UI.ToggleEchoList()
+        elseif lastShownUI == "granted" then
+            EasyEcho_UI.ToggleGrantedEchoes()
+        elseif lastShownUI == "config" then
+            if EasyEcho_Config and EasyEcho_Config.Toggle then EasyEcho_Config.Toggle() end
+        else
+            EasyEcho_UI.ShowMainWindow()
+        end
+    end
 end
 
 
@@ -450,7 +497,7 @@ local function GetEchoDBSorted()
                 table.sort(classNames)
                 local classDisplay
                 if #classNames > 1 then
-                    classDisplay = "Mehrere"
+                    classDisplay = "Multiple"
                 elseif #classNames == 1 then
                     classDisplay = classNames[1]
                 else
@@ -1611,13 +1658,16 @@ function EasyEcho_UI.ToggleGrantedEchoes()
     if not grantedFrame then CreateGrantedFrame() end
     if grantedFrame:IsShown() then
         grantedFrame:Hide()
+        EasyEcho_UI.UpdateShowHideButton()
     else
         if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
         if echoesFrame and echoesFrame:IsShown() then echoesFrame:Hide() end
         local config = _G["EasyEchoConfigFrame"]
         if config and config:IsShown() then config:Hide() end
+        lastShownUI = "granted"
         grantedFrame:Show()
         EasyEcho_UI.UpdateGrantedUI()
+        EasyEcho_UI.UpdateShowHideButton()
     end
 end
 
@@ -2428,21 +2478,26 @@ function EasyEcho_UI.ShowMainWindow()
         config:Hide()
     end
 
+    lastShownUI = "history"
     historyFrame:Show()
     EasyEcho_UI.UpdateHistoryUI()
+    EasyEcho_UI.UpdateShowHideButton()
 end
 
 function EasyEcho_UI.ToggleEchoList()
     if not echoesFrame then CreateEchoesFrame() end
     if echoesFrame:IsShown() then
         echoesFrame:Hide()
+        EasyEcho_UI.UpdateShowHideButton()
     else
         if historyFrame and historyFrame:IsShown() then historyFrame:Hide() end
         if grantedFrame and grantedFrame:IsShown() then grantedFrame:Hide() end
         local config = _G["EasyEchoConfigFrame"]
         if config and config:IsShown() then config:Hide() end
+        lastShownUI = "echoes"
         echoesFrame:Show()
         EasyEcho_UI.UpdateEchoListUI()
+        EasyEcho_UI.UpdateShowHideButton()
     end
 end
 
@@ -2455,7 +2510,15 @@ end
 
 function EasyEcho_UI.Toggle()
     if not historyFrame then CreateHistoryFrame() end
-    if historyFrame:IsShown() then historyFrame:Hide() else historyFrame:Show() EasyEcho_UI.UpdateHistoryUI() end
+    if historyFrame:IsShown() then
+        historyFrame:Hide()
+        EasyEcho_UI.UpdateShowHideButton()
+    else
+        lastShownUI = "history"
+        historyFrame:Show()
+        EasyEcho_UI.UpdateHistoryUI()
+        EasyEcho_UI.UpdateShowHideButton()
+    end
 end
 
 -- =========================================================
