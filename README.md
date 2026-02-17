@@ -107,7 +107,7 @@ When the server offers 3 perk choices, EasyEcho will:
 
 ---
 
-## Detailed Guide & Functions
+## Detailed Guide
 
 EasyEcho provides two main windows, each with multiple tabs.
 All windows are **movable** (drag the title bar) and **resizable** (hold **Shift** and drag any corner handle).
