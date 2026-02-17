@@ -1317,6 +1317,25 @@ local function CalculateGrantedSummary()
     return cPrio, cEpic, cRare, cUseless, cUncommon, cCommon
 end
 
+-- Refreshes only the label texts of the summary frame (reusable)
+local function RefreshGrantedSummaryLabels()
+    if not grantedSummaryFrame then return end
+    local cPrio, cEpic, cRare, cUseless, cUncommon, cCommon = CalculateGrantedSummary()
+    local cTotal = cEpic + cRare + cUncommon + cCommon
+
+    local function pct(n)
+        if cTotal == 0 then return "" end
+        return string.format(" (%.0f%%)", n / cTotal * 100)
+    end
+
+    grantedSummaryFrame.lblPrio:SetText("Prio-Listen Echoes: " .. cPrio)
+    grantedSummaryFrame.lblEpic:SetText("Epic Echoes: " .. cEpic .. pct(cEpic))
+    grantedSummaryFrame.lblRare:SetText("Rare Echoes: " .. cRare .. pct(cRare))
+    grantedSummaryFrame.lblUncommon:SetText("Uncommon Echoes: " .. cUncommon .. pct(cUncommon))
+    grantedSummaryFrame.lblCommon:SetText("Common Echoes: " .. cCommon .. pct(cCommon))
+    grantedSummaryFrame.lblUseless:SetText("Useless Echoes: " .. cUseless)
+end
+
 -- Creates (or shows) the summary popup anchored to the granted frame
 local function ShowGrantedSummary(anchorFrame)
     if not grantedSummaryFrame then
@@ -1368,13 +1387,7 @@ local function ShowGrantedSummary(anchorFrame)
     end
 
     -- Refresh data before showing
-    local cPrio, cEpic, cRare, cUseless, cUncommon, cCommon = CalculateGrantedSummary()
-    grantedSummaryFrame.lblPrio:SetText("Prio-Listen Echoes: " .. cPrio)
-    grantedSummaryFrame.lblEpic:SetText("Epic Echoes: " .. cEpic)
-    grantedSummaryFrame.lblRare:SetText("Rare Echoes: " .. cRare)
-    grantedSummaryFrame.lblUncommon:SetText("Uncommon Echoes: " .. cUncommon)
-    grantedSummaryFrame.lblCommon:SetText("Common Echoes: " .. cCommon)
-    grantedSummaryFrame.lblUseless:SetText("Useless Echoes: " .. cUseless)
+    RefreshGrantedSummaryLabels()
 
     if grantedSummaryFrame:IsShown() then
         grantedSummaryFrame:Hide()
@@ -1652,6 +1665,11 @@ function EasyEcho_UI.UpdateGrantedUI()
     local maxScroll = math.max(0, yOffset - visibleH)
     grantedScrollBar:SetMinMaxValues(0, maxScroll)
     grantedScrollBar:SetValue(0)
+
+    -- Keep summary in sync if it is currently visible
+    if grantedSummaryFrame and grantedSummaryFrame:IsShown() then
+        RefreshGrantedSummaryLabels()
+    end
 end
 
 function EasyEcho_UI.ToggleGrantedEchoes()
