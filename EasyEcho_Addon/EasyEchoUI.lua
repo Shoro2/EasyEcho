@@ -28,6 +28,9 @@ local grantedSortMode = "rarity"
 local grantedSearchText = ""
 local grantedSortDropDown = nil
 
+local tooltipCalcCheckbox = nil
+local tooltipCalcConfigFrame = nil
+
 local MAX_REROLLS_UI = 10 
 
 -- STATS LABELS
@@ -270,6 +273,72 @@ local function SaveTrackedSpellNames(spellOne, spellTwo)
     if not EasyEchoSettings then EasyEchoSettings = {} end
     if spellOne and spellOne ~= "" then EasyEchoSettings.TrackedSpellOne = spellOne end
     if spellTwo and spellTwo ~= "" then EasyEchoSettings.TrackedSpellTwo = spellTwo end
+end
+
+-- =========================================================
+-- TOOLTIP VALUE CALCULATION (AP/SP formula evaluation)
+-- =========================================================
+local function GetTooltipCalcEnabled()
+    if not EasyEchoSettings then return false end
+    return EasyEchoSettings.TooltipCalcEnabled or false
+end
+
+local function SetTooltipCalcEnabled(enabled)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TooltipCalcEnabled = enabled
+end
+
+local function GetTooltipCalcAP()
+    if not EasyEchoSettings then return 0 end
+    return EasyEchoSettings.TooltipCalcAP or 0
+end
+
+local function GetTooltipCalcSP()
+    if not EasyEchoSettings then return 0 end
+    return EasyEchoSettings.TooltipCalcSP or 0
+end
+
+local function SetTooltipCalcAP(val)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TooltipCalcAP = tonumber(val) or 0
+end
+
+local function SetTooltipCalcSP(val)
+    if not EasyEchoSettings then EasyEchoSettings = {} end
+    EasyEchoSettings.TooltipCalcSP = tonumber(val) or 0
+end
+
+-- Replace @formula@ patterns with calculated numeric values.
+-- Formulas can contain: sp (spell power), ap (attack power),
+-- arithmetic operators (+, -, *, /), parentheses, and numbers.
+-- Handles shorthand like "sp0.5" (= sp * 0.5) and "ap2" (= ap * 2).
+local function EvaluateTooltipFormulas(text)
+    if not text or text == "" then return text end
+    if not GetTooltipCalcEnabled() then return text end
+
+    local sp = GetTooltipCalcSP()
+    local ap = GetTooltipCalcAP()
+
+    return text:gsub("@(.-)@", function(formula)
+        local expr = formula
+        -- Insert * between variable and adjacent number (e.g. "sp0.5" -> "sp*0.5")
+        expr = expr:gsub("sp(%d)", "sp*%1")
+        expr = expr:gsub("ap(%d)", "ap*%1")
+        expr = expr:gsub("sp(%.%d)", "sp*%1")
+        expr = expr:gsub("ap(%.%d)", "ap*%1")
+        -- Replace variable names with actual values
+        expr = expr:gsub("sp", tostring(sp))
+        expr = expr:gsub("ap", tostring(ap))
+        -- Safely evaluate the arithmetic expression
+        local func = loadstring("return " .. expr)
+        if func then
+            local ok, result = pcall(func)
+            if ok and type(result) == "number" then
+                return tostring(math.floor(result + 0.5))
+            end
+        end
+        return "@" .. formula .. "@"
+    end)
 end
 
 local function GetPrioRank(name, quality)
@@ -620,6 +689,7 @@ local function CreateRowFrame(parent, pool, index)
         if desc == "" and data.spellId then
             desc = GetSpellTooltipText(data.spellId)
         end
+        desc = EvaluateTooltipFormulas(desc)
         if desc and desc ~= "" then
             GameTooltip:AddLine(desc, 1, 0.82, 0, true)
         else
@@ -713,6 +783,92 @@ local function CreateRowFrame(parent, pool, index)
     return row
 end
 
+-- =========================================================
+-- TOOLTIP CALC CONFIG POPUP (AP/SP input)
+-- =========================================================
+local function CreateTooltipCalcConfigFrame(parent)
+    if tooltipCalcConfigFrame then return end
+
+    local f = CreateFrame("Frame", "EasyEchoCalcConfigFrame", parent)
+    f:SetWidth(220)
+    f:SetHeight(120)
+    f:SetPoint("TOPRIGHT", parent, "TOPLEFT", -2, 0)
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    })
+    f:SetFrameStrata("DIALOG")
+    f:EnableMouse(true)
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", 0, -10)
+    title:SetText("Tooltip Values (Lv 80)")
+
+    -- Attack Power input
+    local apLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    apLabel:SetPoint("TOPLEFT", 12, -35)
+    apLabel:SetText("Attack Power:")
+
+    local apBox = CreateFrame("EditBox", "EasyEchoCalcAPBox", f, "InputBoxTemplate")
+    apBox:SetSize(70, 20)
+    apBox:SetPoint("TOPLEFT", 130, -33)
+    apBox:SetAutoFocus(false)
+    apBox:SetNumeric(true)
+    apBox:SetText(tostring(GetTooltipCalcAP()))
+    apBox:SetScript("OnEnterPressed", function(self)
+        SetTooltipCalcAP(self:GetText())
+        self:ClearFocus()
+    end)
+    apBox:SetScript("OnEditFocusLost", function(self)
+        SetTooltipCalcAP(self:GetText())
+    end)
+    f.apBox = apBox
+
+    -- Spell Power input
+    local spLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    spLabel:SetPoint("TOPLEFT", 12, -60)
+    spLabel:SetText("Spell Power:")
+
+    local spBox = CreateFrame("EditBox", "EasyEchoCalcSPBox", f, "InputBoxTemplate")
+    spBox:SetSize(70, 20)
+    spBox:SetPoint("TOPLEFT", 130, -58)
+    spBox:SetAutoFocus(false)
+    spBox:SetNumeric(true)
+    spBox:SetText(tostring(GetTooltipCalcSP()))
+    spBox:SetScript("OnEnterPressed", function(self)
+        SetTooltipCalcSP(self:GetText())
+        self:ClearFocus()
+    end)
+    spBox:SetScript("OnEditFocusLost", function(self)
+        SetTooltipCalcSP(self:GetText())
+    end)
+    f.spBox = spBox
+
+    -- Close button
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", -2, -2)
+    closeBtn:SetSize(20, 20)
+
+    f:Hide()
+    tooltipCalcConfigFrame = f
+end
+
+local function ToggleTooltipCalcConfig(parent)
+    if not tooltipCalcConfigFrame then
+        CreateTooltipCalcConfigFrame(parent)
+    end
+    if tooltipCalcConfigFrame:IsShown() then
+        tooltipCalcConfigFrame:Hide()
+    else
+        -- Refresh displayed values
+        tooltipCalcConfigFrame.apBox:SetText(tostring(GetTooltipCalcAP()))
+        tooltipCalcConfigFrame.spBox:SetText(tostring(GetTooltipCalcSP()))
+        tooltipCalcConfigFrame:Show()
+    end
+end
+
 local function CreateEchoesFrame()
     if echoesFrame then return end
 
@@ -740,6 +896,36 @@ local function CreateEchoesFrame()
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", f, "TOP", 0, -15)
     title:SetText("Echo Database")
+
+    -- Tooltip value calculation: config button + checkbox
+    local calcConfigBtn = CreateFrame("Button", nil, f)
+    calcConfigBtn:SetSize(16, 16)
+    calcConfigBtn:SetPoint("TOPLEFT", 16, -16)
+    calcConfigBtn:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+    calcConfigBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
+    calcConfigBtn:SetScript("OnClick", function()
+        ToggleTooltipCalcConfig(f)
+    end)
+    calcConfigBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Configure AP/SP values", 1, 1, 1)
+        GameTooltip:AddLine("Set your Attack Power and Spell Power\nfor tooltip formula calculations (Level 80).", 1, 0.82, 0, true)
+        GameTooltip:Show()
+    end)
+    calcConfigBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local calcCheck = CreateFrame("CheckButton", "EasyEchoCalcCheckbox", f, "UICheckButtonTemplate")
+    calcCheck:SetSize(20, 20)
+    calcCheck:SetPoint("LEFT", calcConfigBtn, "RIGHT", 2, 0)
+    calcCheck:SetChecked(GetTooltipCalcEnabled())
+    calcCheck:SetScript("OnClick", function(self)
+        SetTooltipCalcEnabled(self:GetChecked() == 1)
+    end)
+    tooltipCalcCheckbox = calcCheck
+
+    local calcLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    calcLabel:SetPoint("LEFT", calcCheck, "RIGHT", 0, 0)
+    calcLabel:SetText("Show Values")
 
     -- Discovered count label
     echoesCountLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1234,6 +1420,7 @@ local function CreateHistoryRowFrame(parent, pool, index)
             if desc == "" and dbEntry.spellId then
                 desc = GetSpellTooltipText(dbEntry.spellId)
             end
+            desc = EvaluateTooltipFormulas(desc)
             if desc and desc ~= "" then
                 GameTooltip:AddLine(desc, 1, 0.82, 0, true)
             else
