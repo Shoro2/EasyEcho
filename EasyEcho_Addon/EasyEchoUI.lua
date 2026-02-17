@@ -27,6 +27,8 @@ local grantedRowPool = {}      -- pool of row frames for granted echoes view
 local grantedSortMode = "rarity"
 local grantedSearchText = ""
 local grantedSortDropDown = nil
+local grantedTitleLabel = nil  -- header title (updated with total count)
+local grantedSummaryFrame = nil
 
 local tooltipCalcCheckbox = nil
 local tooltipCalcConfigFrame = nil
@@ -1157,6 +1159,183 @@ end
 -- =========================================================
 -- GRANTED ECHOES - Active run's echoes with DB-enriched data
 -- =========================================================
+
+-- Counts total granted echo stacks (unfiltered)
+local function GetTotalGrantedEchoCount()
+    local total = 0
+    local granted, locked = nil, nil
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then granted = ProjectEbonhold.PerkService.GetGrantedPerks() end
+        if ProjectEbonhold.PerkService.GetLockedPerks  then locked  = ProjectEbonhold.PerkService.GetLockedPerks()  end
+    end
+    if not granted and ProjectEbonhold and ProjectEbonhold.Perks then granted = ProjectEbonhold.Perks.grantedPerks end
+    if not locked  and ProjectEbonhold and ProjectEbonhold.Perks then locked  = ProjectEbonhold.Perks.lockedPerks  end
+
+    local function SumContainer(container)
+        if type(container) ~= "table" then return end
+        if container[1] then
+            for _, perk in ipairs(container) do
+                if type(perk) == "table" then
+                    local amount = tonumber(perk.stack) or 1
+                    if amount < 1 then amount = 1 end
+                    total = total + amount
+                end
+            end
+        else
+            for _, perkList in pairs(container) do
+                if type(perkList) == "table" then
+                    for _, perk in ipairs(perkList) do
+                        if type(perk) == "table" then
+                            local amount = tonumber(perk.stack) or 1
+                            if amount < 1 then amount = 1 end
+                            total = total + amount
+                        end
+                    end
+                end
+            end
+        end
+    end
+    SumContainer(granted)
+    SumContainer(locked)
+    return total
+end
+
+-- Calculates summary stats for the granted echoes popup
+local function CalculateGrantedSummary()
+    local cPrio     = 0  -- picked by bot as prio match
+    local cUseless  = 0  -- picked by bot as fallback (no prio match)
+    local cEpic     = 0  -- quality 3
+    local cRare     = 0  -- quality 2
+    local cUncommon = 0  -- quality 1
+    local cCommon   = 0  -- quality 0
+
+    -- Prio / useless from history (tracks bot decisions)
+    if EasyEchoHistoryDB then
+        for _, entry in ipairs(EasyEchoHistoryDB) do
+            if entry.type == "SELECT" then
+                if entry.isPrio then cPrio = cPrio + 1 else cUseless = cUseless + 1 end
+            end
+        end
+    end
+
+    -- Quality breakdown from granted perks API, stack-aware
+    local granted, locked = nil, nil
+    if ProjectEbonhold and ProjectEbonhold.PerkService then
+        if ProjectEbonhold.PerkService.GetGrantedPerks then granted = ProjectEbonhold.PerkService.GetGrantedPerks() end
+        if ProjectEbonhold.PerkService.GetLockedPerks  then locked  = ProjectEbonhold.PerkService.GetLockedPerks()  end
+    end
+    if not granted and ProjectEbonhold and ProjectEbonhold.Perks then granted = ProjectEbonhold.Perks.grantedPerks end
+    if not locked  and ProjectEbonhold and ProjectEbonhold.Perks then locked  = ProjectEbonhold.Perks.lockedPerks  end
+
+    local hasAPI = (type(granted) == "table" or type(locked) == "table")
+
+    if hasAPI then
+        local function ProcessPerk(perk)
+            if type(perk) ~= "table" or not perk.spellId then return end
+            local q = perk.quality or 0
+            local amount = tonumber(perk.stack) or 1
+            if amount < 1 then amount = 1 end
+            if q == 3 then cEpic     = cEpic     + amount
+            elseif q == 2 then cRare     = cRare     + amount
+            elseif q == 1 then cUncommon = cUncommon + amount
+            elseif q == 0 then cCommon   = cCommon   + amount end
+        end
+        local function ProcessContainer(container)
+            if type(container) ~= "table" then return end
+            if container[1] then
+                for _, perk in ipairs(container) do ProcessPerk(perk) end
+            else
+                for _, perkList in pairs(container) do
+                    if type(perkList) == "table" then
+                        for _, perk in ipairs(perkList) do ProcessPerk(perk) end
+                    end
+                end
+            end
+        end
+        ProcessContainer(granted)
+        ProcessContainer(locked)
+    else
+        -- Fallback: count from history
+        for _, entry in ipairs(EasyEchoHistoryDB or {}) do
+            if entry.type == "SELECT" then
+                local q = entry.quality or 0
+                if q == 3 then cEpic     = cEpic     + 1
+                elseif q == 2 then cRare     = cRare     + 1
+                elseif q == 1 then cUncommon = cUncommon + 1
+                elseif q == 0 then cCommon   = cCommon   + 1 end
+            end
+        end
+    end
+
+    return cPrio, cEpic, cRare, cUseless, cUncommon, cCommon
+end
+
+-- Creates (or shows) the summary popup anchored to the granted frame
+local function ShowGrantedSummary(anchorFrame)
+    if not grantedSummaryFrame then
+        local f = CreateFrame("Frame", "EasyEchoGrantedSummaryFrame", anchorFrame)
+        f:SetWidth(240)
+        f:SetHeight(200)
+        f:SetPoint("CENTER", anchorFrame, "CENTER", 0, 0)
+        f:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 }
+        })
+        f:SetFrameStrata("DIALOG")
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", f.StopMovingOrSizing)
+
+        local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOP", 0, -12)
+        title:SetText("Echo Summary")
+
+        local function AddRow(yOff, labelText, r, g, b)
+            local lbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            lbl:SetPoint("TOPLEFT", 14, yOff)
+            lbl:SetWidth(210)
+            lbl:SetJustifyH("LEFT")
+            if r then lbl:SetTextColor(r, g, b) end
+            return lbl
+        end
+
+        local Y0 = -32
+        local DY = 22
+        f.lblPrio     = AddRow(Y0,          "Prio-Listen Echoes: 0",   0.12, 1.0,  0.0)
+        f.lblEpic     = AddRow(Y0 - DY,     "Epic Echoes: 0",          0.64, 0.21, 0.93)
+        f.lblRare     = AddRow(Y0 - DY*2,   "Rare Echoes: 0",          0.0,  0.44, 0.87)
+        f.lblUncommon = AddRow(Y0 - DY*3,   "Uncommon Echoes: 0",      0.12, 1.0,  0.0)
+        f.lblCommon   = AddRow(Y0 - DY*4,   "Common Echoes: 0",        1.0,  1.0,  1.0)
+        f.lblUseless  = AddRow(Y0 - DY*5,   "Useless Echoes: 0",       0.6,  0.6,  0.6)
+
+        local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        closeBtn:SetPoint("TOPRIGHT", -2, -2)
+        closeBtn:SetSize(20, 20)
+
+        f:Hide()
+        grantedSummaryFrame = f
+    end
+
+    -- Refresh data before showing
+    local cPrio, cEpic, cRare, cUseless, cUncommon, cCommon = CalculateGrantedSummary()
+    grantedSummaryFrame.lblPrio:SetText("Prio-Listen Echoes: " .. cPrio)
+    grantedSummaryFrame.lblEpic:SetText("Epic Echoes: " .. cEpic)
+    grantedSummaryFrame.lblRare:SetText("Rare Echoes: " .. cRare)
+    grantedSummaryFrame.lblUncommon:SetText("Uncommon Echoes: " .. cUncommon)
+    grantedSummaryFrame.lblCommon:SetText("Common Echoes: " .. cCommon)
+    grantedSummaryFrame.lblUseless:SetText("Useless Echoes: " .. cUseless)
+
+    if grantedSummaryFrame:IsShown() then
+        grantedSummaryFrame:Hide()
+    else
+        grantedSummaryFrame:Show()
+    end
+end
+
 local function CreateGrantedFrame()
     if grantedFrame then return end
 
@@ -1183,6 +1362,7 @@ local function CreateGrantedFrame()
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", f, "TOP", 0, -15)
     title:SetText("Granted Echoes")
+    grantedTitleLabel = title
 
     -- Search
     local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -1294,6 +1474,15 @@ local function CreateGrantedFrame()
         EasyEcho_UI.ShowMainWindow()
     end)
 
+    -- Summary button
+    local summaryBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    summaryBtn:SetSize(80, 20)
+    summaryBtn:SetPoint("RIGHT", backBtn, "LEFT", -2, 0)
+    summaryBtn:SetText("Summary")
+    summaryBtn:SetScript("OnClick", function()
+        ShowGrantedSummary(f)
+    end)
+
     -- Auto-refresh timer while frame is visible
     f.refreshTimer = 0
     f:SetScript("OnUpdate", function(self, elapsed)
@@ -1344,6 +1533,12 @@ function EasyEcho_UI.UpdateGrantedUI()
     if ProjectEbonhold and ProjectEbonhold.Perks then
         if ProjectEbonhold.Perks.grantedPerks then RecordPerks(ProjectEbonhold.Perks.grantedPerks) end
         if ProjectEbonhold.Perks.lockedPerks then RecordPerks(ProjectEbonhold.Perks.lockedPerks) end
+    end
+
+    -- Update header title with total echo count
+    if grantedTitleLabel then
+        local totalCount = GetTotalGrantedEchoCount()
+        grantedTitleLabel:SetText("Granted Echoes (" .. totalCount .. ")")
     end
 
     -- Hide all rows

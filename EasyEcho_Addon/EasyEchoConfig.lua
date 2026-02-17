@@ -14,14 +14,25 @@ local knownSpells = {}
 local function PopulateKnownSpells()
     knownSpells = {}
     local seen = {}
-    if not EasyEcho_PrioList then return end
-    for _, entry in ipairs(EasyEcho_PrioList) do
-        local name = entry:match("^(.-)::") or entry
-        if name and not seen[name] then
-            table.insert(knownSpells, name)
-            seen[name] = true
+    if EasyEcho_PrioList then
+        for _, entry in ipairs(EasyEcho_PrioList) do
+            local name = entry:match("^(.-)::") or entry
+            if name and not seen[name] then
+                table.insert(knownSpells, name)
+                seen[name] = true
+            end
         end
     end
+    -- Also include all echoes discovered in the DB
+    if EasyEchoEchoDB then
+        for _, data in pairs(EasyEchoEchoDB) do
+            if type(data) == "table" and data.name and not seen[data.name] then
+                table.insert(knownSpells, data.name)
+                seen[data.name] = true
+            end
+        end
+    end
+    table.sort(knownSpells)
 end
 
 -- =========================================================
