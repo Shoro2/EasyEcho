@@ -429,6 +429,9 @@ function EasyEcho_Config.CreateFrame()
         PopulateIOFrame(ioF)
     end)
 
+    f:SetScript("OnHide", function()
+        if EasyEcho_UI and EasyEcho_UI.UpdateShowHideButton then EasyEcho_UI.UpdateShowHideButton() end
+    end)
     configFrame = f f:Hide()
 end
 

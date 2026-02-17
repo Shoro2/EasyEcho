@@ -1199,6 +1199,7 @@ local function CreateEchoesFrame()
         EasyEcho_UI.ShowMainWindow()
     end)
 
+    f:SetScript("OnHide", function() EasyEcho_UI.UpdateShowHideButton() end)
     f:Hide()
     echoesFrame = f
 end
@@ -1553,6 +1554,7 @@ local function CreateGrantedFrame()
         end
     end)
 
+    f:SetScript("OnHide", function() EasyEcho_UI.UpdateShowHideButton() end)
     f:Hide()
     grantedFrame = f
 end
@@ -2133,6 +2135,7 @@ local function CreateHistoryFrame()
 		EasyEcho_UI.ToggleEchoList()
 	end)
     
+    f:SetScript("OnHide", function() EasyEcho_UI.UpdateShowHideButton() end)
     f:Hide()
     historyFrame = f
 end
