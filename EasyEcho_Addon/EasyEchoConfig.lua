@@ -436,10 +436,13 @@ function EasyEcho_Config.Toggle()
     if not configFrame then EasyEcho_Config.CreateFrame() end
     if configFrame:IsShown() then
         configFrame:Hide()
+        if EasyEcho_UI and EasyEcho_UI.UpdateShowHideButton then EasyEcho_UI.UpdateShowHideButton() end
     else
         if EasyEchoHistoryFrame and EasyEchoHistoryFrame:IsShown() then EasyEchoHistoryFrame:Hide() end
         if EasyEchoGrantedEchoesFrame and EasyEchoGrantedEchoesFrame:IsShown() then EasyEchoGrantedEchoesFrame:Hide() end
+        if EasyEcho_UI and EasyEcho_UI.SetLastShownUI then EasyEcho_UI.SetLastShownUI("config") end
         EasyEcho_Config.Refresh()
         configFrame:Show()
+        if EasyEcho_UI and EasyEcho_UI.UpdateShowHideButton then EasyEcho_UI.UpdateShowHideButton() end
     end
 end

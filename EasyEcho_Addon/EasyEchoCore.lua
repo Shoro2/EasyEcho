@@ -159,14 +159,20 @@ function EasyEcho.InitializeSettings()
     EasyEcho_PrioList             = EasyEchoSettings.PriorityList
 end
 
-function EasyEcho_SwitchProfile(profileName)
+function EasyEcho_SwitchProfile(profileName, silent)
     if not EasyEchoSettings or not EasyEchoSettings.Profiles then return end
     if EasyEchoSettings.Profiles[profileName] then
         EasyEchoSettings.ActiveProfile = profileName
         EasyEchoSettings.PriorityList  = EasyEchoSettings.Profiles[profileName].PriorityList
         EasyEchoSettings.BanList       = EasyEchoSettings.Profiles[profileName].BanList
         EasyEcho_PrioList              = EasyEchoSettings.PriorityList
-        if DEFAULT_CHAT_FRAME then
+
+        -- Save this profile as the character's preferred profile
+        if not EasyEchoSettings.CharacterProfiles then EasyEchoSettings.CharacterProfiles = {} end
+        local charKey = (UnitName("player") or "") .. "-" .. (GetRealmName() or "")
+        EasyEchoSettings.CharacterProfiles[charKey] = profileName
+
+        if not silent and DEFAULT_CHAT_FRAME then
             DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. profileName .. "' loaded.")
         end
         if EasyEcho_Config and EasyEcho_Config.Refresh then EasyEcho_Config.Refresh() end
