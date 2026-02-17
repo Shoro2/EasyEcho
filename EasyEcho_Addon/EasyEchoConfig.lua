@@ -176,7 +176,11 @@ function EasyEcho_Config.Refresh()
                 else
                     row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
                 end
-                local tooltipDesc = (dbEntry and dbEntry.tooltip) or ""
+                -- Use quality-specific tooltip, fall back to legacy tooltip
+                local tooltipDesc = ""
+                if dbEntry then
+                    tooltipDesc = (dbEntry.tooltips and dbEntry.tooltips[sQual]) or dbEntry.tooltip or ""
+                end
                 local tooltipStatus = currentView == "Ban" and "|cffff0000Banned|r" or ("Priority #" .. i .. " (" .. sQual .. ")")
                 row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus }
 

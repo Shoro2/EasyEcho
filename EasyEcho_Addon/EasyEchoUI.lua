@@ -157,6 +157,7 @@ function EasyEcho_RecordEcho(spellId, quality)
             spellId = spellId,
             icon = icon or "",
             tooltip = tooltip,
+            tooltips = { [qualityName] = tooltip },
             classes = {},
             qualities = {},
             firstSeen = time(),
@@ -196,7 +197,20 @@ function EasyEcho_RecordEcho(spellId, quality)
         EasyEchoEchoDB[key].icon = icon or ""
     end
 
-    -- Update tooltip if it was empty before
+    -- Ensure tooltips table exists (migration from old format)
+    if not EasyEchoEchoDB[key].tooltips then
+        EasyEchoEchoDB[key].tooltips = {}
+    end
+
+    -- Store/update tooltip for this specific quality tier
+    if not EasyEchoEchoDB[key].tooltips[qualityName] or EasyEchoEchoDB[key].tooltips[qualityName] == "" then
+        local qualityTooltip = GetSpellTooltipText(spellId)
+        if qualityTooltip and qualityTooltip ~= "" then
+            EasyEchoEchoDB[key].tooltips[qualityName] = qualityTooltip
+        end
+    end
+
+    -- Keep legacy tooltip field updated as fallback
     if not EasyEchoEchoDB[key].tooltip or EasyEchoEchoDB[key].tooltip == "" then
         EasyEchoEchoDB[key].tooltip = GetSpellTooltipText(spellId)
     end
@@ -282,8 +296,22 @@ local function GetEchoDBSorted()
 
     for key, data in pairs(EasyEchoEchoDB) do
         if type(data) == "table" and data.name then
-            local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true)
-                or (data.tooltip and string.lower(data.tooltip):find(searchLower, 1, true)))
+            -- Search across all quality-specific tooltips and legacy tooltip
+            local tooltipMatch = false
+            if searchLower ~= "" then
+                if data.tooltips then
+                    for _, tt in pairs(data.tooltips) do
+                        if tt and string.lower(tt):find(searchLower, 1, true) then
+                            tooltipMatch = true
+                            break
+                        end
+                    end
+                end
+                if not tooltipMatch and data.tooltip then
+                    tooltipMatch = string.lower(data.tooltip):find(searchLower, 1, true) ~= nil
+                end
+            end
+            local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true) or tooltipMatch)
 
             -- Build classes set (handle migration from old single class field)
             local classesSet = data.classes or {}
@@ -313,12 +341,14 @@ local function GetEchoDBSorted()
                 for _, qIdx in ipairs(qualityOrder) do
                     local qName = QUALITY_NAMES[qIdx]
                     if qName and data.qualities[qName] then
+                        -- Use quality-specific tooltip, fall back to legacy tooltip
+                        local entryTooltip = (data.tooltips and data.tooltips[qName]) or data.tooltip or ""
                         table.insert(entries, {
                             key = key,
                             name = data.name,
                             icon = data.icon or "",
                             spellId = data.spellId,
-                            tooltip = data.tooltip or "",
+                            tooltip = entryTooltip,
                             classes = classesSet,
                             classDisplay = classDisplay,
                             quality = qIdx,
@@ -410,7 +440,9 @@ local function GetGrantedEchoesSorted()
             local tooltip = ""
             if dbEntry then
                 icon = dbEntry.icon or ""
-                tooltip = dbEntry.tooltip or ""
+                -- Use quality-specific tooltip, fall back to legacy tooltip
+                local qualName = QUALITY_NAMES[quality] or "Common"
+                tooltip = (dbEntry.tooltips and dbEntry.tooltips[qualName]) or dbEntry.tooltip or ""
             end
             if icon == "" then
                 local _, _, spellIcon = GetSpellInfo(spellId)
@@ -458,7 +490,7 @@ local function GetGrantedEchoesSorted()
     local searchLower = string.lower(grantedSearchText or "")
     for _, entry in ipairs(groupedOrder) do
         if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true)
-            or (entry.tooltip and string.lower(entry.tooltip):find(searchLower, 1, true)) then
+            or (entry.tooltip and entry.tooltip ~= "" and string.lower(entry.tooltip):find(searchLower, 1, true)) then
             table.insert(filtered, entry)
         end
     end
