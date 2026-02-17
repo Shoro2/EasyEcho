@@ -97,6 +97,9 @@ local function HandleReroll(pickLevel, reason)
     EasyEcho.SyncRerollStatus(usedRerolls + 1, totalRerolls)
     EasyEcho.LogDecision("REROLL", "-", nil, reason, usedRerolls + 1, totalRerolls, false)
 
+    -- Reset so the new offers after reroll are logged in history
+    S.lastLoggedPick = -1
+
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestReroll then
         ProjectEbonhold.PerkService.RequestReroll()
     end
