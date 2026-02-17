@@ -12,7 +12,7 @@ It automates perk ("Echo") selection during progression runs by choosing from th
 3. [Requirements](#requirements)
 4. [Installation](#installation)
 5. [In-game Commands](#in-game-commands)
-6. [Detailed Guide](#ui-windows--detailed-guide)
+6. [Detailed Guide](#detailed-guide)
    - [Main Window (History / Stats / Echoes)](#main-window-history--stats--echoes)
    - [Configuration Window](#configuration-window)
 7. [Configuration Reference](#configuration-reference)
