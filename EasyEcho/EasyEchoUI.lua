@@ -72,6 +72,9 @@ local echoesSearchText = ""
 local echoesSortDropDown = nil
 local echoesCountLabel = nil   -- "X echoes discovered" header label
 local echoesClassFilter = "All" -- class filter for DB view
+local echoesHdrName = nil      -- DB column header refs (for proportional resize)
+local echoesHdrQual = nil
+local echoesHdrClass = nil
 
 local grantedFrame = nil
 local grantedContent = nil
@@ -82,6 +85,9 @@ local grantedSearchText = ""
 local grantedSortDropDown = nil
 local grantedTitleLabel = nil  -- header title (updated with total count)
 local grantedSummaryFrame = nil
+local grantedHdrName = nil     -- Granted column header refs (for proportional resize)
+local grantedHdrQual = nil
+local grantedHdrCount = nil
 
 local tooltipCalcCheckbox = nil
 local tooltipCalcConfigFrame = nil
@@ -745,6 +751,18 @@ local ROW_ICON_SIZE = 22
 local HIST_ROW_HEIGHT = 20
 local HIST_ICON_SIZE = 16
 
+-- Calculate proportional column widths: name=60%, quality=20%, extra=20%
+local function CalcColWidths(contentWidth)
+    local iconW = ROW_ICON_SIZE + 6
+    local gapW = 8  -- two 4px gaps between columns
+    local available = contentWidth - iconW - gapW
+    if available < 30 then available = 30 end
+    local nameW = math.floor(available * 0.60)
+    local qualW = math.floor(available * 0.20)
+    local extraW = available - nameW - qualW
+    return nameW, qualW, extraW
+end
+
 local function CreateRowFrame(parent, pool, index)
     if pool[index] then return pool[index] end
 
@@ -1198,18 +1216,21 @@ local function CreateEchoesFrame()
     hdrName:SetWidth(200)
     hdrName:SetJustifyH("LEFT")
     hdrName:SetText("|cffbbbbbbName|r")
+    echoesHdrName = hdrName
 
     local hdrQual = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hdrQual:SetPoint("LEFT", hdrName, "RIGHT", 4, 0)
     hdrQual:SetWidth(80)
     hdrQual:SetJustifyH("LEFT")
     hdrQual:SetText("|cffbbbbbbQuality|r")
+    echoesHdrQual = hdrQual
 
     local hdrClass = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hdrClass:SetPoint("LEFT", hdrQual, "RIGHT", 4, 0)
     hdrClass:SetWidth(70)
     hdrClass:SetJustifyH("LEFT")
     hdrClass:SetText("|cffbbbbbbClass|r")
+    echoesHdrClass = hdrClass
 
     -- Scroll frame
     local sf = CreateFrame("ScrollFrame", "EasyEchoEchoesScrollFrame", f)
@@ -1252,10 +1273,15 @@ local function CreateEchoesFrame()
         EasyEcho_UI.ShowMainWindow()
     end)
 
-    -- Resize: update scroll-content width whenever the frame is resized
+    -- Resize: update scroll-content width and column headers whenever the frame is resized
     f:SetScript("OnSizeChanged", function(self)
         if echoesContent then
-            echoesContent:SetWidth(self:GetWidth() - 60)
+            local newContentW = self:GetWidth() - 60
+            echoesContent:SetWidth(newContentW)
+            local nW, qW, eW = CalcColWidths(newContentW)
+            if echoesHdrName  then echoesHdrName:SetWidth(nW)  end
+            if echoesHdrQual  then echoesHdrQual:SetWidth(qW)  end
+            if echoesHdrClass then echoesHdrClass:SetWidth(eW) end
         end
     end)
 
@@ -1485,7 +1511,7 @@ local function CreateGrantedFrame()
     })
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOP", f, "TOP", 0, -15)
+    title:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -15)
     title:SetText("Granted Echoes")
     grantedTitleLabel = title
 
@@ -1545,18 +1571,21 @@ local function CreateGrantedFrame()
     hdrName:SetWidth(200)
     hdrName:SetJustifyH("LEFT")
     hdrName:SetText("|cffbbbbbbName|r")
+    grantedHdrName = hdrName
 
     local hdrQual = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hdrQual:SetPoint("LEFT", hdrName, "RIGHT", 4, 0)
     hdrQual:SetWidth(80)
     hdrQual:SetJustifyH("LEFT")
     hdrQual:SetText("|cffbbbbbbQuality|r")
+    grantedHdrQual = hdrQual
 
     local hdrCount = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     hdrCount:SetPoint("LEFT", hdrQual, "RIGHT", 4, 0)
     hdrCount:SetWidth(70)
     hdrCount:SetJustifyH("LEFT")
     hdrCount:SetText("|cffbbbbbbCount|r")
+    grantedHdrCount = hdrCount
 
     -- Scroll frame
     local sf = CreateFrame("ScrollFrame", "EasyEchoGrantedScrollFrame", f)
@@ -1618,10 +1647,15 @@ local function CreateGrantedFrame()
         end
     end)
 
-    -- Resize: update scroll-content width whenever the frame is resized
+    -- Resize: update scroll-content width and column headers whenever the frame is resized
     f:SetScript("OnSizeChanged", function(self)
         if grantedContent then
-            grantedContent:SetWidth(self:GetWidth() - 60)
+            local newContentW = self:GetWidth() - 60
+            grantedContent:SetWidth(newContentW)
+            local nW, qW, eW = CalcColWidths(newContentW)
+            if grantedHdrName  then grantedHdrName:SetWidth(nW)  end
+            if grantedHdrQual  then grantedHdrQual:SetWidth(qW)  end
+            if grantedHdrCount then grantedHdrCount:SetWidth(eW) end
         end
     end)
 
@@ -1684,11 +1718,15 @@ function EasyEcho_UI.UpdateGrantedUI()
     local entries = GetGrantedEchoesSorted()
     local contentWidth = grantedContent:GetWidth()
     local yOffset = 0
+    local nameColW, qualColW, extraColW = CalcColWidths(contentWidth)
 
     if #entries == 0 then
         local row = CreateRowFrame(grantedContent, grantedRowPool, 1)
         row:SetPoint("TOPLEFT", 0, 0)
         row:SetWidth(contentWidth)
+        row.nameText:SetWidth(nameColW)
+        row.qualText:SetWidth(qualColW)
+        row.extraText:SetWidth(extraColW)
         row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
         row.nameText:SetText("|cff888888No echoes granted yet.|r")
         row.qualText:SetText("")
@@ -1701,6 +1739,9 @@ function EasyEcho_UI.UpdateGrantedUI()
             local row = CreateRowFrame(grantedContent, grantedRowPool, i)
             row:SetPoint("TOPLEFT", 0, -yOffset)
             row:SetWidth(contentWidth)
+            row.nameText:SetWidth(nameColW)
+            row.qualText:SetWidth(qualColW)
+            row.extraText:SetWidth(extraColW)
 
             -- Icon from DB or live
             if entry.icon and entry.icon ~= "" then
@@ -2524,10 +2565,15 @@ function EasyEcho_UI.UpdateEchoListUI()
         echoesCountLabel:SetText(totalCount .. " echoes discovered" .. (#entries ~= totalCount and (" (" .. #entries .. " shown)") or ""))
     end
 
+    local nameColW, qualColW, extraColW = CalcColWidths(contentWidth)
+
     if #entries == 0 then
         local row = CreateRowFrame(echoesContent, echoesRowPool, 1)
         row:SetPoint("TOPLEFT", 0, 0)
         row:SetWidth(contentWidth)
+        row.nameText:SetWidth(nameColW)
+        row.qualText:SetWidth(qualColW)
+        row.extraText:SetWidth(extraColW)
         row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
         row.nameText:SetText("|cff888888No echoes discovered yet.|r")
         row.qualText:SetText("")
@@ -2540,6 +2586,9 @@ function EasyEcho_UI.UpdateEchoListUI()
             local row = CreateRowFrame(echoesContent, echoesRowPool, i)
             row:SetPoint("TOPLEFT", 0, -yOffset)
             row:SetWidth(contentWidth)
+            row.nameText:SetWidth(nameColW)
+            row.qualText:SetWidth(qualColW)
+            row.extraText:SetWidth(extraColW)
 
             -- Icon
             if entry.icon and entry.icon ~= "" then
