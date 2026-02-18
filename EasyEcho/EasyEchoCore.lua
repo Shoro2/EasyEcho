@@ -148,7 +148,7 @@ function EasyEcho.InitializeSettings()
 
     local prof = EasyEchoSettings.ActiveProfile
     if not EasyEchoSettings.Profiles[prof] then
-        EasyEchoSettings.Profiles[prof] = { PriorityList = {}, BanList = {} }
+        EasyEchoSettings.Profiles[prof] = { PriorityList = {}, BanList = {}, BanishList = {} }
         for _, v in ipairs(EasyEcho.DEFAULT_PRIO) do
             table.insert(EasyEchoSettings.Profiles[prof].PriorityList, v)
         end
@@ -156,6 +156,7 @@ function EasyEcho.InitializeSettings()
 
     EasyEchoSettings.PriorityList = EasyEchoSettings.Profiles[prof].PriorityList
     EasyEchoSettings.BanList      = EasyEchoSettings.Profiles[prof].BanList or {}
+    EasyEchoSettings.BanishList   = EasyEchoSettings.Profiles[prof].BanishList or {}
     EasyEcho_PrioList             = EasyEchoSettings.PriorityList
 
     -- General settings defaults
@@ -174,6 +175,7 @@ function EasyEcho_SwitchProfile(profileName, silent)
         EasyEchoSettings.ActiveProfile = profileName
         EasyEchoSettings.PriorityList  = EasyEchoSettings.Profiles[profileName].PriorityList
         EasyEchoSettings.BanList       = EasyEchoSettings.Profiles[profileName].BanList
+        EasyEchoSettings.BanishList    = EasyEchoSettings.Profiles[profileName].BanishList or {}
         EasyEcho_PrioList              = EasyEchoSettings.PriorityList
 
         -- Save this profile as the character's preferred profile
@@ -300,6 +302,23 @@ function EasyEcho.IsBanned(name)
         if string.lower(bannedName) == lowerName then return true end
     end
     return false
+end
+
+function EasyEcho.IsBanished(name)
+    if not name or not EasyEchoSettings or not EasyEchoSettings.BanishList then return false end
+    local lowerName = string.lower(name)
+    for _, entry in ipairs(EasyEchoSettings.BanishList) do
+        if string.lower(entry) == lowerName then return true end
+    end
+    return false
+end
+
+function EasyEcho.GetRemainingBanishes()
+    if ProjectEbonhold and ProjectEbonhold.PlayerRunService then
+        local data = ProjectEbonhold.PlayerRunService.GetCurrentData()
+        if data then return data.remainingBanishes or 0 end
+    end
+    return 0
 end
 
 function EasyEcho.PlayerAlreadyHasPerk(checkName)
