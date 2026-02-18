@@ -709,7 +709,9 @@ local function GetGrantedEchoesSorted()
     end
 
     AddFromContainer(granted)
-    AddFromContainer(locked)
+    if EasyEchoSettings == nil or EasyEchoSettings.IncludeLockedEchoes ~= false then
+        AddFromContainer(locked)
+    end
 
     local filtered = {}
     local searchLower = string.lower(grantedSearchText or "")

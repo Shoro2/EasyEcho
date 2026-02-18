@@ -4,7 +4,10 @@ local scrollChild = nil
 local rows = {}
 local searchText = ""
 local selectedQuality = "Any"
-local currentView = "Prio" 
+local currentView = "Prio"
+
+-- General settings frame (created on first use)
+local generalSettingsFrame = nil
 
 -- Suggestion System Variables
 local suggestionFrame = nil
@@ -77,14 +80,14 @@ end
 function EasyEcho_Config.Refresh()
     if not scrollChild or not EasyEchoSettings then return end
     if not EasyEchoSettings.Profiles then EasyEchoSettings.Profiles = { ["Default"] = { PriorityList = {}, BanList = {} } } end
-    
+
     PopulateKnownSpells()
     for _, row in ipairs(rows) do row:Hide() end
-    
+
     local list = {}
     if currentView == "Prio" then list = EasyEchoSettings.PriorityList
     elseif currentView == "Ban" then list = EasyEchoSettings.BanList
-    elseif currentView == "Profiles" then 
+    elseif currentView == "Profiles" then
         for name, _ in pairs(EasyEchoSettings.Profiles) do table.insert(list, name) end
         table.sort(list)
     end
@@ -249,7 +252,7 @@ function EasyEcho_Config.Refresh()
         end
     end
     scrollChild:SetHeight(displayCount * 26)
-    
+
     if EasyEchoAddPrio then
         if currentView == "Profiles" then
             EasyEchoAddPrio:Hide()
@@ -261,6 +264,120 @@ function EasyEcho_Config.Refresh()
             else UIDropDownMenu_DisableDropDown(EasyEchoConfigQualityDropDown) end
         end
     end
+end
+
+-- =========================================================
+-- GENERAL SETTINGS FRAME
+-- =========================================================
+local TICK_SPEED_OPTIONS = {
+    { label = "Very Fast (0.1s)", value = 0.1 },
+    { label = "Fast (0.3s)",      value = 0.3 },
+    { label = "Normal (0.5s)",    value = 0.5 },
+    { label = "Slow (1.0s)",      value = 1.0 },
+    { label = "Very Slow (2.0s)", value = 2.0 },
+}
+
+local function GetTickSpeedLabel(speed)
+    for _, opt in ipairs(TICK_SPEED_OPTIONS) do
+        if math.abs(opt.value - (speed or 0.5)) < 0.001 then return opt.label end
+    end
+    return "Normal (0.5s)"
+end
+
+local function RefreshGeneralSettings()
+    if not generalSettingsFrame or not EasyEchoSettings then return end
+    local f = generalSettingsFrame
+    UIDropDownMenu_SetText(f.tickDropDown, GetTickSpeedLabel(EasyEchoSettings.TickSpeed))
+    f.cbDeath:SetChecked(EasyEchoSettings.AutoResetLogOnDeath and true or false)
+    f.cbSummary:SetChecked(EasyEchoSettings.AutoOpenSummaryAt80 and true or false)
+    f.cbLocked:SetChecked(EasyEchoSettings.IncludeLockedEchoes ~= false)
+end
+
+local function CreateGeneralSettingsFrame()
+    local f = CreateFrame("Frame", "EasyEchoGeneralFrame", UIParent)
+    f:SetSize(370, 210)
+    f:SetPoint("CENTER", 0, 60)
+    f:SetFrameStrata("DIALOG")
+    f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving) f:SetScript("OnDragStop", f.StopMovingOrSizing)
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+
+    -- Title
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", 0, -15)
+    title:SetText("EasyEcho – General Settings")
+
+    -- Close button
+    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+    closeBtn:SetPoint("TOPRIGHT", -5, -5)
+    closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+    -- Tick speed label
+    local tickLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tickLabel:SetPoint("TOPLEFT", 20, -44)
+    tickLabel:SetText("Tick Speed:")
+
+    -- Tick speed dropdown
+    local tickDrop = CreateFrame("Frame", "EasyEchoGeneralTickDrop", f, "UIDropDownMenuTemplate")
+    tickDrop:SetPoint("TOPLEFT", 90, -36)
+    UIDropDownMenu_SetWidth(tickDrop, 150)
+    UIDropDownMenu_Initialize(tickDrop, function()
+        for _, opt in ipairs(TICK_SPEED_OPTIONS) do
+            local o = opt  -- capture for closure
+            UIDropDownMenu_AddButton({
+                text = o.label,
+                value = o.value,
+                func = function(self)
+                    if EasyEchoSettings then
+                        EasyEchoSettings.TickSpeed = self.value
+                        if EasyEcho and EasyEcho.Constants then
+                            EasyEcho.Constants.DELAY_TIME = self.value
+                        end
+                    end
+                    UIDropDownMenu_SetText(tickDrop, self.text)
+                end,
+            })
+        end
+    end)
+    f.tickDropDown = tickDrop
+
+    -- Helper: create a checkbox with a text label to its right
+    local function MakeCheckBox(yOff, labelText, onClickFn)
+        local cb = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        cb:SetSize(22, 22)
+        cb:SetPoint("TOPLEFT", 20, yOff)
+        local lbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        lbl:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+        lbl:SetText(labelText)
+        cb:SetScript("OnClick", function(self)
+            local checked = self:GetChecked()
+            onClickFn(checked and true or false)
+        end)
+        return cb
+    end
+
+    f.cbDeath = MakeCheckBox(-82,
+        "Reset log automatically on death",
+        function(v) if EasyEchoSettings then EasyEchoSettings.AutoResetLogOnDeath = v end end
+    )
+
+    f.cbSummary = MakeCheckBox(-110,
+        "Auto-open summary screen at level 80",
+        function(v) if EasyEchoSettings then EasyEchoSettings.AutoOpenSummaryAt80 = v end end
+    )
+
+    f.cbLocked = MakeCheckBox(-138,
+        "Include locked echoes in granted echo list",
+        function(v) if EasyEchoSettings then EasyEchoSettings.IncludeLockedEchoes = v end end
+    )
+
+    f:Hide()
+    return f
 end
 
 -- =========================================================
@@ -364,9 +481,24 @@ function EasyEcho_Config.CreateFrame()
         end
     end)
 
-    -- Tabs
+    -- General settings button (leftmost, before tabs)
+    local gBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    gBtn:SetSize(80, 25) gBtn:SetPoint("TOPLEFT", 20, -15) gBtn:SetText("General")
+    gBtn:SetScript("OnClick", function()
+        if not generalSettingsFrame then
+            generalSettingsFrame = CreateGeneralSettingsFrame()
+        end
+        if generalSettingsFrame:IsShown() then
+            generalSettingsFrame:Hide()
+        else
+            generalSettingsFrame:Show()
+            RefreshGeneralSettings()
+        end
+    end)
+
+    -- Tabs (shifted right of General button)
     local pTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    pTab:SetSize(110, 25) pTab:SetPoint("TOPLEFT", 20, -15) pTab:SetText("Priority List")
+    pTab:SetSize(110, 25) pTab:SetPoint("LEFT", gBtn, "RIGHT", 5, 0) pTab:SetText("Priority List")
     pTab:SetScript("OnClick", function() currentView = "Prio" EasyEcho_Config.Refresh() end)
     local bTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     bTab:SetSize(110, 25) bTab:SetPoint("LEFT", pTab, "RIGHT", 5, 0) bTab:SetText("Ban List")
@@ -375,12 +507,16 @@ function EasyEcho_Config.CreateFrame()
     prTab:SetSize(110, 25) prTab:SetPoint("LEFT", bTab, "RIGHT", 5, 0) prTab:SetText("Profiles")
     prTab:SetScript("OnClick", function() currentView = "Profiles" EasyEcho_Config.Refresh() end)
 
+    -- Search box: second row, left-aligned
+    local searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    searchLabel:SetPoint("TOPLEFT", 20, -51)
+    searchLabel:SetText("Search:")
     local searchBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    searchBox:SetSize(130, 20) searchBox:SetPoint("TOPLEFT", 390, -15)
+    searchBox:SetSize(160, 20) searchBox:SetPoint("TOPLEFT", 72, -48)
     searchBox:SetScript("OnTextChanged", function(s) searchText = s:GetText() EasyEcho_Config.Refresh() end)
 
     local sf = CreateFrame("ScrollFrame", "EasyEchoConfigScrollFrame", f, "UIPanelScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 20, -65) sf:SetPoint("BOTTOMRIGHT", -35, 110)
+    sf:SetPoint("TOPLEFT", 20, -78) sf:SetPoint("BOTTOMRIGHT", -35, 110)
     scrollChild = CreateFrame("Frame", "EasyEchoConfigScrollChild") scrollChild:SetSize(540, 1) sf:SetScrollChild(scrollChild)
 
     suggestionFrame = CreateFrame("Frame", nil, f) suggestionFrame:SetSize(180, 120) suggestionFrame:SetFrameStrata("HIGH") suggestionFrame:Hide()
@@ -400,7 +536,7 @@ function EasyEcho_Config.CreateFrame()
     addPrio:SetSize(30, 20) addPrio:SetPoint("BOTTOMLEFT", 25, 75) addPrio:SetNumeric(true)
     local addQualDrop = CreateFrame("Frame", "EasyEchoConfigQualityDropDown", f, "UIDropDownMenuTemplate")
     addQualDrop:SetPoint("BOTTOMLEFT", 240, 68) UIDropDownMenu_SetWidth(addQualDrop, 90)
-    UIDropDownMenu_Initialize(addQualDrop, function() 
+    UIDropDownMenu_Initialize(addQualDrop, function()
         local opts = {"Common", "Uncommon", "Rare", "Epic", "Any"}
         for _, o in ipairs(opts) do UIDropDownMenu_AddButton({text=o, value=o, func=function(s) selectedQuality=s.value UIDropDownMenu_SetText(EasyEchoConfigQualityDropDown, s.value) end}) end
     end)
