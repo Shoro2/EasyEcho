@@ -17,9 +17,7 @@ Perks.currentChoice = nil
 Perks.grantedPerks = {} 
 Perks.lockedPerks = {} 
 Perks.maximumPermanentEchoes = 0 
-
-
-
+Perks.pendingBanishIndex = nil -- Track which perk index is being banished 
 
 ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_CHOICE,
                                 function(body)
@@ -80,12 +78,13 @@ end)
 
 
 
-ProjectEbonhold.onEventReceived(ProjectEbonhold.SS
-                                    .SEND_PLAYER_PERK_SELECTION_RESULT,
+ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_SELECTION_RESULT,
                                 function(body)
-    
+    -- -- print("[DEBUG] Received SEND_PLAYER_PERK_SELECTION_RESULT with body: " .. tostring(body))
+    -- Selection succeeded
     if body == "1" then
-        
+        -- -- print("[DEBUG] Perk selection succeeded")
+        -- Hide selection UI 
         Perks.currentChoice = nil
         
         if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.Hide then
@@ -96,6 +95,7 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS
         
         Perks.RequestGrantedPerks()
     elseif body == "0" then
+        -- -- print("[DEBUG] Perk selection failed server-side")
         -- Selection failed server-side, re-enable interaction so player can try again
         if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.ResetSelection then
             ProjectEbonhold.PerkUI.ResetSelection()
@@ -196,6 +196,84 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_GRANTED,
 end)
 
 
+-- Handle banish replacement perk response
+ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_BANISH_REPLACEMENT_PERK,
+                                function(body)
+    -- -- print("[DEBUG] Received SEND_BANISH_REPLACEMENT_PERK with body: " .. tostring(body))
+    
+    -- Check if we have a pending banish
+    if not Perks.pendingBanishIndex then
+        -- -- print("[DEBUG] No pending banish index stored")
+        return
+    end
+    
+    local perkIndex = Perks.pendingBanishIndex
+    Perks.pendingBanishIndex = nil -- Clear pending banish
+    
+    if not body or body == "" then
+        -- Banish failed - server sent empty response
+        -- -- print("[DEBUG] Banish failed - empty response from server")
+        if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.ResetSelection then
+            ProjectEbonhold.PerkUI.ResetSelection()
+        end
+        return
+    end
+    
+    local newSpellId = tonumber(body)
+    -- -- print("[DEBUG] Banish response - newSpellId: " .. tostring(newSpellId) .. " for perkIndex: " .. tostring(perkIndex))
+    
+    if not newSpellId then
+        -- -- print("[DEBUG] Invalid banish response - could not parse spell ID")
+        if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.ResetSelection then
+            ProjectEbonhold.PerkUI.ResetSelection()
+        end
+        return
+    end
+    
+    if newSpellId == 0 then
+        -- Banish failed (server returned 0)
+        -- -- print("[DEBUG] Banish failed - server returned spellId 0")
+        if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.ResetSelection then
+            ProjectEbonhold.PerkUI.ResetSelection()
+        end
+        return
+    end
+    
+    -- Banish succeeded - update the perk choice at the specified index
+    -- -- print("[DEBUG] Banish succeeded - updating perk choice at index " .. tostring(perkIndex + 1))
+    if Perks.currentChoice and Perks.currentChoice[perkIndex + 1] then
+        local oldSpellId = Perks.currentChoice[perkIndex + 1].spellId
+        local oldQuality = Perks.currentChoice[perkIndex + 1].quality
+        
+        Perks.currentChoice[perkIndex + 1].spellId = newSpellId
+        -- Keep the same quality for the replacement perk, or default to 0
+        -- Server can send quality info later if needed
+        
+        -- -- print("[DEBUG] Replaced spell " .. tostring(oldSpellId) .. " with " .. tostring(newSpellId))
+        
+        -- Use animated single perk update instead of full refresh
+        if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.UpdateSinglePerk then
+            -- -- print("[DEBUG] Using UpdateSinglePerk for animated replacement")
+            ProjectEbonhold.PerkUI.UpdateSinglePerk(perkIndex, Perks.currentChoice[perkIndex + 1])
+        elseif ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.Show then
+            -- Fallback to full refresh if UpdateSinglePerk not available
+            -- -- print("[DEBUG] Falling back to full UI refresh")
+            ProjectEbonhold.PerkUI.Show(Perks.currentChoice)
+        end
+        
+        -- Re-enable interaction after animation
+        if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.ResetSelection then
+            ProjectEbonhold.PerkUI.ResetSelection()
+        end
+    else
+        -- -- print("[DEBUG] Could not find current choice at index " .. tostring(perkIndex + 1))
+        if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.ResetSelection then
+            ProjectEbonhold.PerkUI.ResetSelection()
+        end
+    end
+end)
+
+
 function Perks.RequestChoice()
     ProjectEbonhold.sendToServer(ProjectEbonhold.CS.REQUEST_PLAYER_PERK_CHOICE,
                                  "")
@@ -203,10 +281,17 @@ end
 
 
 function Perks.SelectPerk(spellId)
-    if not spellId or spellId == 0 then return false end
+    -- -- print("[DEBUG] Perks.SelectPerk called with spellId: " .. tostring(spellId))
+    if not spellId or spellId == 0 then 
+        -- -- print("[DEBUG] SelectPerk: Invalid spellId")
+        return false 
+    end
 
-    
-    if not Perks.currentChoice then return false end
+    -- Check if we have current choices
+    if not Perks.currentChoice then 
+        -- -- print("[DEBUG] SelectPerk: No current choices available")
+        return false 
+    end
 
     local found = false
     for _, choice in ipairs(Perks.currentChoice) do
@@ -216,11 +301,13 @@ function Perks.SelectPerk(spellId)
         end
     end
 
-    if not found then return false end
+    if not found then 
+        -- -- print("[DEBUG] SelectPerk: SpellId not found in current choices")
+        return false 
+    end
     
-    ProjectEbonhold.sendToServer(ProjectEbonhold.CS
-                                     .REQUEST_PLAYER_PERK_SELECTION,
-                                 tostring(spellId))
+    -- -- print("[DEBUG] SelectPerk: Sending to server - REQUEST_PLAYER_PERK_SELECTION with spellId: " .. tostring(spellId))
+    ProjectEbonhold.sendToServer(ProjectEbonhold.CS.REQUEST_PLAYER_PERK_SELECTION, tostring(spellId))
     return true
 end
 
@@ -236,6 +323,38 @@ function Perks.RequestReroll()
 end
 
 
+function Perks.BanishPerk(perkIndex)
+    -- -- print("[DEBUG] Perks.BanishPerk called with perkIndex: " .. tostring(perkIndex))
+    if not perkIndex or perkIndex < 0 or perkIndex > 2 then 
+        -- -- print("[DEBUG] BanishPerk: Invalid perkIndex")
+        return false 
+    end
+    
+    -- Check if banish system is enabled
+    if not ProjectEbonhold.Constants or not ProjectEbonhold.Constants.ENABLE_BANISH_SYSTEM then
+        -- -- print("[DEBUG] BanishPerk: Banish system is disabled")
+        return false
+    end
+    
+    -- Check if we have remaining banishes
+    local runData = ProjectEbonhold.PlayerRunService and ProjectEbonhold.PlayerRunService.GetCurrentData() or {}
+    local remainingBanishes = runData.remainingBanishes or 0
+    -- -- print("[DEBUG] BanishPerk: Remaining banishes: " .. tostring(remainingBanishes))
+    if remainingBanishes <= 0 then
+        -- -- print("[DEBUG] BanishPerk: No remaining banishes")
+        return false
+    end
+    
+    -- Store which perk we're trying to banish
+    Perks.pendingBanishIndex = perkIndex
+    -- -- print("[DEBUG] BanishPerk: Stored pending banish index: " .. tostring(perkIndex))
+    
+    -- -- print("[DEBUG] BanishPerk: Sending to server - REQUEST_BANISH_PERK with perkIndex: " .. tostring(perkIndex))
+    ProjectEbonhold.sendToServer(ProjectEbonhold.CS.REQUEST_BANISH_PERK, tostring(perkIndex))
+    return true
+end
+
+
 
 
 
@@ -247,6 +366,7 @@ ProjectEbonhold.PerkService.RequestChoice = Perks.RequestChoice
 ProjectEbonhold.PerkService.SelectPerk = Perks.SelectPerk
 ProjectEbonhold.PerkService.RequestGrantedPerks = Perks.RequestGrantedPerks
 ProjectEbonhold.PerkService.RequestReroll = Perks.RequestReroll
+ProjectEbonhold.PerkService.BanishPerk = Perks.BanishPerk
 ProjectEbonhold.PerkService.GetCurrentChoice = function()
     return Perks.currentChoice
 end

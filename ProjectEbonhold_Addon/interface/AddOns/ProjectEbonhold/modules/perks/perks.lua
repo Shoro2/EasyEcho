@@ -2,9 +2,11 @@ local perkMainFrame = nil
 local perkFramePool = {}
 local hideButton = nil
 local rerollButton = nil
+local banishButton = nil
 local chooseButton = nil
 local isFading = false
 local isSelecting = false -- Guard against double-selection / accidental clicks
+local banishMode = false -- Track whether we're in banish mode
 local pendingShowTimer = nil -- Track pending deferred ShowPerkUI calls
 
 local qualityInfo = {
@@ -22,6 +24,61 @@ local function GetRerollInfo()
     local totalRerolls = runData.totalRerolls or 0
     local availableRerolls = math.max(0, totalRerolls - usedRerolls)
     return availableRerolls, totalRerolls
+end
+
+-- Helper to check if banishing is available
+local function GetBanishInfo()
+    -- Check if system is enabled
+    if not ProjectEbonhold.Constants or not ProjectEbonhold.Constants.ENABLE_BANISH_SYSTEM then
+        -- -- print("[DEBUG] GetBanishInfo: Banish system is disabled")
+        return 0
+    end
+    
+    -- -- print("[DEBUG] GetBanishInfo: ProjectEbonhold.PlayerRunService exists: " .. tostring(ProjectEbonhold.PlayerRunService ~= nil))
+    
+    if ProjectEbonhold.PlayerRunService then
+        -- -- print("[DEBUG] GetBanishInfo: GetCurrentData function exists: " .. tostring(ProjectEbonhold.PlayerRunService.GetCurrentData ~= nil))
+    end
+    
+    local runData = ProjectEbonhold.PlayerRunService and ProjectEbonhold.PlayerRunService.GetCurrentData() or {}
+    local remainingBanishes = runData.remainingBanishes or 0
+    
+    -- -- print("[DEBUG] GetBanishInfo: Player run data remaining banishes: " .. tostring(remainingBanishes))
+    -- -- print("[DEBUG] GetBanishInfo: runData table type: " .. type(runData))
+    
+    -- Also check global variable directly
+    local globalRunData = _G["EbonholdPlayerRunData"] or {}
+    -- -- print("[DEBUG] GetBanishInfo: Global EbonholdPlayerRunData exists: " .. tostring(_G["EbonholdPlayerRunData"] ~= nil))
+    if _G["EbonholdPlayerRunData"] then
+        -- -- print("[DEBUG] GetBanishInfo: Global remainingBanishes: " .. tostring(globalRunData.remainingBanishes or "nil"))
+        
+        -- Compare service vs global data
+        if runData.remainingBanishes ~= globalRunData.remainingBanishes then
+            -- -- print("[DEBUG] GetBanishInfo: DATA MISMATCH! Service: " .. tostring(runData.remainingBanishes) .. ", Global: " .. tostring(globalRunData.remainingBanishes))
+        end
+    end
+    
+    if type(runData) == "table" then
+        -- -- print("[DEBUG] GetBanishInfo: runData contents:")
+        for k, v in pairs(runData) do
+            -- -- print("[DEBUG] GetBanishInfo: runData." .. tostring(k) .. " = " .. tostring(v) .. " (type: " .. type(v) .. ")")
+        end
+    end
+    
+    -- Use global data if service data is missing banishes info or if there's a mismatch
+    -- -- print("[DEBUG] GetBanishInfo: Checking fallback conditions...")
+    -- -- print("[DEBUG] GetBanishInfo: remainingBanishes == 0: " .. tostring(remainingBanishes == 0))
+    -- -- print("[DEBUG] GetBanishInfo: not remainingBanishes: " .. tostring(not remainingBanishes))
+    -- -- print("[DEBUG] GetBanishInfo: globalRunData.remainingBanishes: " .. tostring(globalRunData.remainingBanishes))
+    -- -- print("[DEBUG] GetBanishInfo: globalRunData.remainingBanishes > 0: " .. tostring(globalRunData.remainingBanishes and globalRunData.remainingBanishes > 0))
+    
+    if (remainingBanishes == 0 or not remainingBanishes) and globalRunData.remainingBanishes and globalRunData.remainingBanishes > 0 then
+        -- -- print("[DEBUG] GetBanishInfo: Using global data instead: " .. tostring(globalRunData.remainingBanishes))
+        remainingBanishes = globalRunData.remainingBanishes
+    end
+    
+    -- -- print("[DEBUG] GetBanishInfo: Final result: " .. tostring(remainingBanishes))
+    return remainingBanishes
 end
 
 -- Animation Helper (3.3.5 Compatible)
@@ -46,13 +103,20 @@ do
         for frame, fadeInfo in pairs(fadingFrames) do
             hasFades = true
             fadeInfo.timer = fadeInfo.timer + elapsed
-            if fadeInfo.timer >= fadeInfo.duration then
+            
+            -- Check if still in delay period
+            if fadeInfo.timer < 0 then
+                -- Still in delay, keep alpha at start
+                frame:SetAlpha(fadeInfo.startAlpha)
+            elseif fadeInfo.timer >= fadeInfo.duration then
+                -- Animation complete
                 frame:SetAlpha(fadeInfo.endAlpha)
                 if fadeInfo.finishedFunc then
                     fadeInfo.finishedFunc(frame)
                 end
                 fadingFrames[frame] = nil
             else
+                -- Animating
                 local progress = fadeInfo.timer / fadeInfo.duration
                 local alpha = fadeInfo.startAlpha + (fadeInfo.endAlpha - fadeInfo.startAlpha) * progress
                 frame:SetAlpha(alpha)
@@ -161,12 +225,19 @@ local function AcquirePerkFrame(parent)
     return frame
 end
 
-local function UpdatePerkFrame(frame, perkData)
+local function UpdatePerkFrame(frame, perkData, perkIndex)
+    if not frame or not perkData then return end
+    
     local spellId = perkData.spellId
     local quality = perkData.quality
     local stacks = perkData.stack or 1
     local maxStacks = perkData.maxStack or 1
     local qualityData = qualityInfo[quality] or qualityInfo[0]
+    
+    -- Store the perkIndex on the frame (0-based)
+    frame.perkIndex = perkIndex
+
+    -- -- print("[DEBUG] UpdatePerkFrame called for spellId: " .. tostring(spellId) .. ", quality: " .. tostring(quality) .. ", perkIndex: " .. tostring(perkIndex))
 
     -- Update Visuals
     frame.iconBase:SetTexture("Interface\\AddOns\\ProjectEbonhold\\assets\\perk_quality_" .. qualityData.border)
@@ -185,9 +256,20 @@ local function UpdatePerkFrame(frame, perkData)
     local description = utils.GetSpellDescription(spellId, 120)
     frame.descText:SetText(description)
 
+    -- Update button text and style based on banish mode
+    if banishMode then
+        frame.selectButton.text:SetText("Banish")
+        frame.selectButton.text:SetTextColor(1, 0.3, 0.3)  -- Red text for banish mode
+    else
+        frame.selectButton.text:SetText("Select")
+        frame.selectButton.text:SetTextColor(1, 1, 1)  -- White text for select mode
+    end
+
     -- Update Button Click
     frame.selectButton:SetScript("OnClick", function()
-        if isSelecting then return end
+        if isSelecting then 
+            return 
+        end
         isSelecting = true
         -- Disable all select buttons immediately to prevent double-selection
         for _, f in ipairs(perkFramePool) do
@@ -196,9 +278,18 @@ local function UpdatePerkFrame(frame, perkData)
                 f:EnableMouse(false)
             end
         end
-        local success = ProjectEbonhold.PerkService.SelectPerk(spellId)
+        
+        local success
+        if banishMode then
+            -- In banish mode, banish the perk instead of selecting it
+            success = ProjectEbonhold.PerkService.BanishPerk(perkIndex)
+        else
+            -- In select mode, select the perk normally
+            success = ProjectEbonhold.PerkService.SelectPerk(spellId)
+        end
+        
         if not success then
-            -- Selection failed client-side (e.g. race condition), re-enable interaction
+            -- Action failed client-side (e.g. race condition), re-enable interaction
             isSelecting = false
             for _, f in ipairs(perkFramePool) do
                 if f.inUse then
@@ -230,6 +321,18 @@ local function UpdatePerkFrame(frame, perkData)
         GameTooltip:Show()
     end)
     frame:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+
+    -- Ensure all frame components are visible (important for updates)
+    frame:Show()
+    frame.iconFrame:Show()
+    frame.icon:Show()
+    frame.iconBase:Show()
+    frame.border:Show()
+    frame.nameText:Show()
+    frame.descText:Show()
+    frame.selectButton:Show()
+    
+    -- -- print("[DEBUG] UpdatePerkFrame: Complete - frame IsShown: " .. tostring(frame:IsShown()) .. ", Alpha: " .. tostring(frame:GetAlpha()))
 end
 
 -- Main Frame Initialization
@@ -250,9 +353,14 @@ local function InitializePerkUI()
     end)
 
     -- Reroll Button
-    rerollButton = utils.CreateSimpleCustomButton(perkMainFrame, "Reroll", nil, 160, 38)
-    rerollButton:SetPoint("BOTTOM", perkMainFrame, "TOP", 0, 50)
+    rerollButton = utils.CreateSimpleCustomButton(perkMainFrame, "Reroll", nil, 140, 38)
+    rerollButton:SetPoint("BOTTOM", perkMainFrame, "TOP", -75, 50)
     -- Scripts for reroll are context dependent, will set in Show
+
+    -- Main Banish Button
+    banishButton = utils.CreateSimpleCustomButton(perkMainFrame, "Banish", nil, 140, 38)
+    banishButton:SetPoint("BOTTOM", perkMainFrame, "TOP", 75, 50)
+    -- Scripts for banish will be set in Show
 
     -- Hide Button (The complex one with particles)
     hideButton = CreateFrame("Button", "PerkHideButton", perkMainFrame)
@@ -470,9 +578,27 @@ local function InitializePerkUI()
         end
 
         rerollButton:Show()
-        -- Refresh reroll text with latest data (may have changed since ShowPerkUI, e.g. after death)
+        banishButton:Show()
+        -- Refresh button states with latest data (may have changed since ShowPerkUI, e.g. after death)
         local availRerolls, totRerolls = GetRerollInfo()
-        rerollButton:SetText("Reroll (" .. availRerolls .. "/" .. totRerolls .. ")")
+        if availRerolls > 0 then
+            rerollButton.text:SetText("Reroll (" .. tostring(availRerolls) .. ")")
+            rerollButton.text:SetTextColor(1, 1, 1)
+            rerollButton:Enable()
+        else
+            rerollButton.text:SetText("Reroll")
+            rerollButton:Disable()
+        end
+        
+        local availBanishes = GetBanishInfo()
+        if availBanishes > 0 then
+            banishButton.text:SetText("Banish (" .. tostring(availBanishes) .. ")")
+            banishButton.text:SetTextColor(1, 1, 1)
+            banishButton:Enable()
+        else
+            banishButton.text:SetText("Banish")
+            banishButton:Disable()
+        end
 
         -- Logic for state
         perkMainFrame.perksHidden = false
@@ -512,17 +638,44 @@ local function InitializePerkUI()
             end
             hideButton.text:SetText("Show")
             rerollButton:Hide()
+            banishButton:Hide()
         else
             -- SHOW PERKS - re-enable mouse interaction
+            -- Reset banish mode when showing perks again
+            banishMode = false
+            
             for i, frame in ipairs(activePerks) do
                 frame:EnableMouse(true)
                 frame.selectButton:EnableMouse(true)
                 FadeFrame(frame, 0.3, 0, 1, (i - 1) * 0.1)
+                -- Reset all buttons to select mode
+                if frame.selectButton then
+                    frame.selectButton.text:SetText("Select")
+                    frame.selectButton.text:SetTextColor(1, 1, 1)
+                end
             end
             rerollButton:Show()
-            -- Refresh reroll text with latest data
+            banishButton:Show()
+            -- Refresh button states with latest data
             local availRerolls, totRerolls = GetRerollInfo()
-            rerollButton:SetText("Reroll (" .. availRerolls .. "/" .. totRerolls .. ")")
+            if availRerolls > 0 then
+                rerollButton.text:SetText("Reroll (" .. tostring(availRerolls) .. ")")
+                rerollButton.text:SetTextColor(1, 1, 1)
+                rerollButton:Enable()
+            else
+                rerollButton.text:SetText("Reroll")
+                rerollButton:Disable()
+            end
+            
+            local availBanishes = GetBanishInfo()
+            if availBanishes > 0 then
+                banishButton.text:SetText("Banish (" .. tostring(availBanishes) .. ")")
+                banishButton.text:SetTextColor(1, 1, 1)
+                banishButton:Enable()
+            else
+                banishButton.text:SetText("Banish")
+                banishButton:Disable()
+            end
             hideButton.text:SetText("Hide")
         end
     end)
@@ -535,6 +688,7 @@ end
 local function ForceResetPerkUI()
     isFading = false
     isSelecting = false
+    banishMode = false  -- Reset banish mode
     if perkMainFrame then
         CancelFade(perkMainFrame)
         perkMainFrame:SetAlpha(1)
@@ -562,11 +716,18 @@ local function ForceResetPerkUI()
         rerollButton:Hide()
         rerollButton:SetAlpha(1)
     end
+    if banishButton then
+        CancelFade(banishButton)
+        banishButton:Hide()
+        banishButton:SetAlpha(1)
+    end
 end
 
 -- Show Logic
 local function ShowPerkUI(choices)
     if not choices or #choices == 0 then return end
+    
+    -- -- print("[DEBUG] ShowPerkUI called with " .. tostring(#choices) .. " choices")
     
     -- Cancel any pending deferred ShowPerkUI call to prevent stacking
     if pendingShowTimer then
@@ -598,8 +759,9 @@ local function ShowPerkUI(choices)
 
     -- Setup Perk Frames
     for i, perkData in ipairs(choices) do
+        -- -- print("[DEBUG] ShowPerkUI: Setting up perk frame " .. tostring(i) .. " with spellId: " .. tostring(perkData.spellId))
         local perkFrame = AcquirePerkFrame(perkMainFrame)
-        UpdatePerkFrame(perkFrame, perkData)
+        UpdatePerkFrame(perkFrame, perkData, i - 1)  -- Pass 0-based index
 
         local xOffset = ((i - 1) - ((perkCount - 1) / 2)) * 200
         perkFrame:SetPoint("CENTER", perkMainFrame, "CENTER", xOffset, 0)
@@ -613,11 +775,18 @@ local function ShowPerkUI(choices)
 
     -- Reroll Logic (read fresh data each time to avoid stale counts after death/reset)
     local initAvail, initTotal = GetRerollInfo()
-    rerollButton:SetText("Reroll (" .. initAvail .. "/" .. initTotal .. ")")
+    if initAvail > 0 then
+        rerollButton.text:SetText("Reroll (" .. tostring(initAvail) .. ")")
+        rerollButton.text:SetTextColor(1, 1, 1)
+        rerollButton:Enable()
+    else
+        rerollButton.text:SetText("Reroll")
+        rerollButton:Disable()
+    end
+    
     rerollButton:SetScript("OnClick", function()
         -- Read fresh reroll data on every click
         local availableRerolls, totalRerolls = GetRerollInfo()
-        rerollButton:SetText("Reroll (" .. availableRerolls .. "/" .. totalRerolls .. ")")
 
         if availableRerolls <= 0 then
             DEFAULT_CHAT_FRAME:AddMessage("|cffff0000No rerolls remaining! Rerolls are restored upon death.|r")
@@ -670,8 +839,69 @@ local function ShowPerkUI(choices)
     end)
     rerollButton:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
 
+    -- Main Banish Button Logic
+    local remainingBanishes = GetBanishInfo()
+    if remainingBanishes > 0 then
+        banishButton.text:SetText("Banish (" .. tostring(remainingBanishes) .. ")")
+        banishButton.text:SetTextColor(1, 1, 1)
+        banishButton:Enable()
+    else
+        banishButton.text:SetText("Banish")
+        banishButton:Disable()
+    end
+    
+    banishButton:SetScript("OnClick", function()
+        -- Toggle banish mode
+        banishMode = not banishMode
+        
+        -- Update button appearance based on mode
+        if banishMode then
+            banishButton.text:SetTextColor(1, 0.3, 0.3)
+        else
+            banishButton.text:SetTextColor(1, 1, 1)
+        end
+        
+        -- Update all perk frame buttons to reflect the new mode
+        for _, frame in ipairs(perkFramePool) do
+            if frame.inUse and frame:IsShown() then
+                if banishMode then
+                    frame.selectButton.text:SetText("Banish")
+                    frame.selectButton.text:SetTextColor(1, 0.3, 0.3)
+                else
+                    frame.selectButton.text:SetText("Select")
+                    frame.selectButton.text:SetTextColor(1, 1, 1)
+                end
+            end
+        end
+    end)
+    
+    banishButton:SetScript("OnEnter", function(self)
+        local freshBanishes = GetBanishInfo()
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:ClearLines()
+        if banishMode then
+            GameTooltip:AddLine("Cancel Banish Mode", 1, 0.82, 0)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Click to exit banish mode and return to selecting echoes.", 1, 1, 1, true)
+        else
+            GameTooltip:AddLine("Banish Echo", 1, 0.82, 0)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Enter banish mode. Click an echo to remove it from future selections in your current run. It banishes all qualities of the chosen echo.", 1, 1, 1, true)
+            GameTooltip:AddLine(" ")
+            if freshBanishes > 0 then
+                GameTooltip:AddLine("Banishes remaining: " .. freshBanishes, 0, 1, 0)
+            else
+                GameTooltip:AddLine("No banishes remaining", 1, 0, 0)
+            end
+        end
+        GameTooltip:Show()
+    end)
+    banishButton:SetScript("OnLeave", function(self) GameTooltip:Hide() end)
+
     -- Initial State
+    banishMode = false  -- Reset banish mode when showing new choices
     rerollButton:Hide()
+    banishButton:Hide()
     hideButton:Hide()
     hideButton.text:SetText("Show")
     perkMainFrame.perksHidden = true
@@ -686,6 +916,7 @@ end
 
 local function HidePerkUI()
     isSelecting = false
+    banishMode = false  -- Reset banish mode when hiding UI
     if perkMainFrame and perkMainFrame:IsShown() then
         isFading = true
         -- Immediately disable all perk interactions to prevent clicks during fade-out
@@ -722,6 +953,133 @@ ProjectEbonhold.PerkUI.ResetSelection = function()
             f.selectButton:EnableMouse(true)
         end
     end
+end
+ProjectEbonhold.PerkUI.RefreshBanishText = function()
+    -- Update main banish button state when player data is refreshed
+    if perkMainFrame and banishButton and perkMainFrame:IsShown() then
+        local remainingBanishes = GetBanishInfo()
+        
+        -- Update button state
+        if remainingBanishes > 0 then
+            banishButton.text:SetText("Banish (" .. tostring(remainingBanishes) .. ")")
+            if not banishMode then
+                banishButton.text:SetTextColor(1, 1, 1)
+            else
+                banishButton.text:SetTextColor(1, 0.3, 0.3)
+            end
+            banishButton:Enable()
+        else
+            banishButton.text:SetText("Banish")
+            banishButton:Disable()
+            -- Exit banish mode if we run out of banishes
+            if banishMode then
+                banishMode = false
+                -- Update all perk frames back to select mode
+                for _, frame in ipairs(perkFramePool) do
+                    if frame.inUse and frame:IsShown() then
+                        frame.selectButton.text:SetText("Select")
+                        frame.selectButton.text:SetTextColor(1, 1, 1)
+                    end
+                end
+            end
+        end
+    end
+end
+ProjectEbonhold.PerkUI.UpdateSinglePerk = function(perkIndex, newPerkData)
+    -- Update a single perk frame with animation (0-based index from server)
+    -- -- print("[DEBUG] UpdateSinglePerk: Updating perk at index " .. tostring(perkIndex) .. " with spellId: " .. tostring(newPerkData.spellId))
+    
+    if not perkMainFrame or not perkMainFrame:IsShown() then
+        -- -- print("[DEBUG] UpdateSinglePerk: Main frame not shown, falling back to full refresh")
+        ShowPerkUI(ProjectEbonhold.PerkService.GetCurrentChoice())
+        return
+    end
+    
+    -- Find the frame at this index (perkIndex is 0-based, Lua arrays are 1-based)
+    local frameIndex = perkIndex + 1
+    local targetFrame = nil
+    
+    for i, frame in ipairs(perkFramePool) do
+        if frame.inUse and frame.perkIndex == perkIndex then
+            targetFrame = frame
+            break
+        end
+    end
+    
+    if not targetFrame then
+        -- -- print("[DEBUG] UpdateSinglePerk: Could not find frame for index " .. tostring(perkIndex) .. ", falling back to full refresh")
+        ShowPerkUI(ProjectEbonhold.PerkService.GetCurrentChoice())
+        return
+    end
+    
+    -- -- print("[DEBUG] UpdateSinglePerk: Found target frame, animating replacement")
+    
+    -- Disable interaction during animation
+    targetFrame:EnableMouse(false)
+    targetFrame.selectButton:EnableMouse(false)
+    
+    -- Fade out the old perk
+    FadeFrame(targetFrame, 0.15, targetFrame:GetAlpha(), 0, 0, function(self)
+        -- -- print("[DEBUG] UpdateSinglePerk: Fade-out complete, updating frame")
+        
+        -- Update the frame with new perk data
+        UpdatePerkFrame(self, newPerkData, perkIndex)
+        
+        -- -- print("[DEBUG] UpdateSinglePerk: Frame updated, starting fade-in")
+        
+        -- Show frame at alpha 0, then fade to 1 using a fresh FadeFrame call
+        -- We need to set alpha manually and use delay to avoid nested fade issues
+        self:Show()
+        self:SetAlpha(0)
+        
+        -- Use delay parameter to create a gap between update and fade-in
+        -- This avoids the nested FadeFrame issue
+        local startTime = GetTime()
+        local fadeInDelay = 0.05
+        local fadeInDuration = 0.2
+        
+        -- Simple manual fade-in using OnUpdate
+        local fadeInFrame = CreateFrame("Frame")
+        fadeInFrame:SetScript("OnUpdate", function(_, elapsed)
+            local elapsed = GetTime() - startTime
+            if elapsed < fadeInDelay then
+                -- Still waiting
+                self:SetAlpha(0)
+            elseif elapsed < fadeInDelay + fadeInDuration then
+                -- Fading in
+                local progress = (elapsed - fadeInDelay) / fadeInDuration
+                self:SetAlpha(progress)
+            else
+                -- Done
+                self:SetAlpha(1)
+                self:EnableMouse(true)
+                self.selectButton:EnableMouse(true)
+                -- -- print("[DEBUG] UpdateSinglePerk: Fade-in complete")
+                fadeInFrame:SetScript("OnUpdate", nil)
+            end
+        end)
+    end)
+    
+    -- Exit banish mode after successful banish
+    if banishMode then
+        banishMode = false
+        
+        -- Update banish button back to normal white color
+        if banishButton then
+            banishButton.text:SetTextColor(1, 1, 1)
+        end
+        
+        -- Update all perk frames back to select mode
+        for _, frame in ipairs(perkFramePool) do
+            if frame.inUse and frame:IsShown() and frame.selectButton then
+                frame.selectButton.text:SetText("Select")
+                frame.selectButton.text:SetTextColor(1, 1, 1)
+            end
+        end
+    end
+    
+    -- Update banish count display
+    ProjectEbonhold.PerkUI.RefreshBanishText()
 end
 
 local function PrewarmPool()
