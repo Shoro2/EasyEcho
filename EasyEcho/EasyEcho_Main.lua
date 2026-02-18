@@ -56,6 +56,13 @@ eventFrame:SetScript("OnEvent", function(_, event)
     end
 
     if event == "PLAYER_DEAD" then
+        -- Auto-reset log immediately on death if the setting is enabled
+        if EasyEchoSettings and EasyEchoSettings.AutoResetLogOnDeath then
+            if EasyEcho.Hooks and EasyEcho.Hooks.ResetRunState then
+                EasyEcho.Hooks.ResetRunState("Player died. Log automatically reset.")
+            end
+            return
+        end
         S.pendingDeathReset = true
         S.acceptDeathWatcher.timer = 0
         S.acceptDeathWatcher.timeout = 0
@@ -72,6 +79,13 @@ eventFrame:SetScript("OnEvent", function(_, event)
         end
         if EasyEcho.Engine and EasyEcho.Engine.CheckAutoStopAtMaxLevel then
             EasyEcho.Engine.CheckAutoStopAtMaxLevel()
+        end
+        -- Auto-open summary screen when reaching level 80
+        if EasyEchoSettings and EasyEchoSettings.AutoOpenSummaryAt80 then
+            local lvl = UnitLevel("player") or 1
+            if lvl >= 80 and EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
+                EasyEcho_UI.ShowMainWindow()
+            end
         end
         return
     end

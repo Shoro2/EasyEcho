@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**EasyEcho** is a World of Warcraft addon for the ProjectEbonhold private server (WoW 3.3.5 / Interface 30300). It automates perk/ability selection during character progression runs by choosing from offered perks based on user-defined priority and ban lists. It supports multiple profiles, rerolling, history tracking, and statistics.
+**EasyEcho** is a World of Warcraft addon for the ProjectEbonhold private server (WoW 3.3.5a / Interface 30300). It automates perk ("echo") selection during character progression runs by choosing from offered perks based on user-defined priority and ban lists. It supports multiple profiles, rerolling, history tracking, statistics, and a persistent echo catalog.
 
 ## Repository Structure
 
@@ -10,35 +10,51 @@
 EasyEcho/
 ├── CLAUDE.md
 ├── .gitattributes
-├── EasyEcho_Addon/              # Main addon
+├── EasyEcho_Addon/              # Main addon (deploy this folder)
 │   ├── EasyEcho.toc             # WoW addon manifest (defines load order & saved variables)
-│   ├── EasyEcho.lua             # Core bot logic: perk selection engine, profiles, event handling
+│   ├── EasyEchoUI.lua           # All UI frames: history, stats, granted echoes, echo database (~2,600 lines)
 │   ├── EasyEchoConfig.lua       # Configuration UI: priority/ban list management, profiles, import/export
-│   └── EasyEchoUI.lua           # History & statistics UI: selection log, stats dashboard, slash commands
+│   ├── EasyEchoCore.lua         # Constants, shared state, profile management, helpers
+│   ├── EasyEchoEngine.lua       # Selection engine and picker frame state machine
+│   ├── EasyEchoHooks.lua        # Hooks for Start / Accept Death buttons
+│   └── EasyEcho_Main.lua        # Event dispatcher (PLAYER_LOGIN, PLAYER_DEAD, PLAYER_ALIVE, PLAYER_LEVEL_UP)
 └── ProjectEbonhold_Addon/       # Reference copy of server-side addon modules
-    └── interface/AddOns/ProjectEbonhold/modules/perks/
-        ├── perks.lua            # Perk picker UI: frame rendering, animations, quality colors
-        └── perks_service.lua    # Perk service API: server communication, event dispatching
+    └── interface/AddOns/ProjectEbonhold/modules/
+        ├── perks/
+        │   ├── perks.lua            # Perk picker UI: frame rendering, animations, quality colors
+        │   └── perks_service.lua    # Perk service API: server communication, event dispatching
+        └── playerRun/
+            ├── player_run_service.lua
+            ├── player_run_ui.lua
+            └── deathFrame.lua
 ```
 
 ### Load Order (defined in EasyEcho.toc)
 
-1. `EasyEchoUI.lua` — UI framework and history display
-2. `EasyEchoConfig.lua` — Configuration panel
-3. `EasyEcho.lua` — Core logic (depends on UI being loaded first)
+| # | File | Purpose |
+|---|------|---------|
+| 1 | `EasyEchoUI.lua` | All UI frame definitions and rendering |
+| 2 | `EasyEchoConfig.lua` | Configuration panel (priority/ban lists, profiles) |
+| 3 | `EasyEchoCore.lua` | Constants, shared state, profile management |
+| 4 | `EasyEchoEngine.lua` | Selection engine and state machine |
+| 5 | `EasyEchoHooks.lua` | Hooks for Start / Accept Death buttons |
+| 6 | `EasyEcho_Main.lua` | Event dispatcher |
+
+`EasyEchoCore.lua` must be loaded before `EasyEchoEngine.lua` and `EasyEcho_Main.lua` — do not reorder them.
 
 ### Saved Variables (persisted between sessions)
 
-- `EasyEchoLogDB` — Timestamped debug/decision log
-- `EasyEchoHistoryDB` — Perk selection history entries
-- `EasyEchoSettings` — User settings, priority lists, ban lists, profiles
+- `EasyEchoLogDB` — Timestamped debug/decision log (capped at ~2000 entries)
+- `EasyEchoHistoryDB` — Perk selection history entries (OPTIONS, SELECT, REROLL)
+- `EasyEchoSettings` — User settings, priority lists, ban lists, profiles, character-specific profile memory
+- `EasyEchoEchoDB` — Persistent echo catalog: name, tooltip, qualities, first/last seen, classes
 
 ## Tech Stack
 
 - **Language:** Lua 5.1 (WoW embedded scripting)
-- **Platform:** World of Warcraft 3.3.5 (WotLK) private server
+- **Platform:** World of Warcraft 3.3.5a (WotLK) private server
 - **Framework:** WoW Addon API (TOC-based addon system)
-- **External dependencies:** ProjectEbonhold server addon (provides `ProjectEbonhold.Perks` service API)
+- **External dependencies:** ProjectEbonhold server addon (provides `ProjectEbonhold.PerkService` and `ProjectEbonhold.PlayerRunService`)
 - **Build system:** None — pure Lua source files deployed directly
 - **Tests:** None
 - **Linting/Formatting:** None configured
@@ -46,35 +62,80 @@ EasyEcho/
 
 ## Architecture
 
-### Core Selection Engine (`EasyEcho.lua`)
+### Module Namespaces
 
-The perk selection follows this decision pipeline:
+| Namespace | Defined in | Purpose |
+|-----------|-----------|---------|
+| `EasyEcho` | all files | Root table; owns sub-namespaces |
+| `EasyEcho.Constants` (`C`) | `EasyEchoCore.lua` | Tunable constants (`DELAY_TIME`, etc.) |
+| `EasyEcho.State` (`S`) | `EasyEchoCore.lua` | Runtime state: frames, flags, counters |
+| `EasyEcho.Engine` | `EasyEchoEngine.lua` | Selection logic and state machine functions |
+| `EasyEcho.Hooks` | `EasyEchoHooks.lua` | Button-hooking logic |
+| `EasyEcho_UI` | `EasyEchoUI.lua` | UI rendering and update functions |
+| `EasyEcho_Config` | `EasyEchoConfig.lua` | Config panel rendering and refresh |
 
-1. **Receive perk choices** from the ProjectEbonhold perk service via `SEND_PLAYER_PERK_CHOICE` event
-2. **Delay processing** by 0.5s (configurable) using an `OnUpdate` timer to let the UI settle
-3. **Check one-time perks** — perks that should only be taken once (e.g., "Immolation Aura"); picks the highest quality match
-4. **Check priority list** — scans available choices against the ordered priority list; picks the highest-ranked match
-5. **Check ban list** — if all choices are banned, attempt a reroll
-6. **Fallback** — if no priority match, select the first non-banned choice; prefer epic quality
+### Core Selection Engine (`EasyEchoEngine.lua`)
 
-Key state flags:
+The perk selection follows this decision pipeline inside `ProcessChoices()`:
+
+1. **Get choices** — `ProjectEbonhold.PerkService.GetCurrentChoice()`
+2. **Log OPTIONS** — record offered choices in history (once per pick counter)
+3. **Priority match** (`CheckPriority()`):
+   - Skips banned perks (`EasyEcho.IsBanned()`)
+   - Skips one-time perks already granted (`EasyEcho.ONE_TIME_MAP` + `EasyEcho.PlayerAlreadyHasPerk()`)
+   - Finds highest-priority entry matching any offered perk (`Name::Quality` or `Name::Any`)
+   - If match found → select it
+4. **All banned** — if every offered perk is on the ban list → attempt reroll
+5. **No priority match** — no offered perk matches the priority list → attempt reroll
+6. **Reroll unavailable** — pick the left-most non-banned option as final fallback
+
+**State machine states** (picker frame `OnUpdate`):
+
+| State | Description |
+|-------|-------------|
+| `START_DELAY` | Waiting for initial render delay (`C.DELAY_TIME`) |
+| `PROCESSING` | Running the decision pipeline |
+| `WAIT_FOR_NEW_CARDS` | Detecting new offers after a reroll |
+| `LOCKED` | Waiting for server to confirm selection |
+
+Key state flags (in `EasyEcho.State`):
 - `isProcessing` — prevents concurrent processing of choices
-- `pickerFrame` — reference to the ProjectEbonhold perk picker UI
-- `currentRerolls` / `maxRerolls` — reroll tracking per run
+- `isAutoStopped` — set when the engine auto-halts (e.g., at level 80)
+- `pendingDeathReset` — tracks whether a death reset is pending confirmation
+- `currentRerolls` — reroll count for the current picker event
+- `pickerFrame` — the OnUpdate frame driving the state machine
 
-### Profile System
+### Profile System (`EasyEchoCore.lua`)
 
-Profiles store independent priority and ban lists. Users can create, switch, save, and load profiles. A default priority list with ~78 entries is provided.
+Profiles store independent priority and ban lists. `EasyEchoSettings.CharacterProfiles` maps each character (name + realm key) to their last-used profile, restored silently on `PLAYER_LOGIN`.
 
-### Event System
+Key functions:
+- `EasyEcho.InitializeSettings()` — initializes SavedVars and loads the active profile
+- `EasyEcho_SwitchProfile(name, silent)` — activates a profile and saves character preference
+- `EasyEcho_ResetPrioToDefault()` — resets active profile's priority list to `EasyEcho.DEFAULT_PRIO`
+- `EasyEcho_Start()` / `EasyEcho_Stop()` / `EasyEcho_ToggleRunning()` — bot start/stop
 
-Initialization happens on `PLAYER_LOGIN`. The addon hooks into ProjectEbonhold's perk service callbacks to intercept perk choices before the player would manually select them.
+### Event System (`EasyEcho_Main.lua`)
 
-### UI Architecture
+Handles WoW events on a single `eventFrame`:
 
-- **History window** (`/ee` or `/easyecho`) — scrollable log of OPTIONS, SELECT, and REROLL events with color coding
-- **Config window** (`/easyecho config`) — tabbed interface with Priority List, Ban List, and Profiles tabs
-- **Statistics panel** — tracks specific perk counters (Rend, Double Strike, Epics, Rares, rerolls remaining)
+| Event | Action |
+|-------|--------|
+| `PLAYER_LOGIN` | Initialize settings, restore character profile, init UI, hook Start buttons |
+| `PLAYER_DEAD` | Mark pending death reset; hook Accept Death buttons |
+| `PLAYER_ALIVE` | Confirm or cancel death reset; sync reroll status |
+| `PLAYER_LEVEL_UP` | Refresh echoes UI; check auto-stop at level 80 |
+
+### UI Architecture (`EasyEchoUI.lua`)
+
+The main window (`/ee` or `/easyecho`) has three tabs:
+- **History** — scrollable OPTIONS/SELECT/REROLL log with right-click context menu
+- **Stats** — tracked spells, epic/rare counters, live reroll display
+- **Granted Echoes** — list of currently owned perks with quality summary popup
+
+**Echo Database** — persistent catalog of all ever-seen echoes, searchable and sortable. Stored in `EasyEchoEchoDB`.
+
+All windows are movable and resizable (Shift+drag corner handles). The addon remembers which windows were open per character.
 
 ## Code Conventions
 
@@ -82,20 +143,22 @@ Initialization happens on `PLAYER_LOGIN`. The addon hooks into ProjectEbonhold's
 
 | Scope | Convention | Example |
 |-------|-----------|---------|
-| Global functions | `EasyEcho_PascalCase` prefix | `EasyEcho_SwitchProfile()` |
-| Local functions | `camelCase` or `PascalCase` | `ProcessChoices()`, `GetExactPriorityRank()` |
+| Global functions | `EasyEcho_PascalCase` | `EasyEcho_SwitchProfile()` |
+| Module functions | `EasyEcho.Namespace.FunctionName` | `EasyEcho.Engine.CheckAutoStopAtMaxLevel()` |
+| Local functions | `PascalCase` or `camelCase` | `CheckPriority()`, `GetExactPriorityRank()` |
 | Saved variables | `EasyEchoPascalCaseDB` / `EasyEchoSettings` | `EasyEchoLogDB` |
-| UI frames | `PascalCase` | `CreateHistoryFrame()` |
+| UI frames | `PascalCase` | `EasyEchoGrantedEchoesFrame` |
 | Module namespaces | `EasyEcho_Config`, `EasyEcho_UI` | — |
-| Constants | `UPPER_SNAKE_CASE` | `MAX_REROLLS`, `MIN_LEVEL` |
+| Constants table | `EasyEcho.Constants` (aliased as `C`) | `C.DELAY_TIME` |
+| State table | `EasyEcho.State` (aliased as `S`) | `S.isProcessing` |
 
 ### Patterns
 
 - **Event-driven**: All server interaction uses WoW event registration (`RegisterEvent`, `SetScript("OnEvent")`)
-- **State machine**: The picker frame transitions through states (`"START_DELAY"`, `"WAIT_FOR_NEW_CARDS"`, `"LOCKED"`)
-- **Frame pooling**: `perks.lua` reuses UI frames from a pool for performance
+- **State machine**: The picker frame transitions through states (`"START_DELAY"`, `"PROCESSING"`, `"WAIT_FOR_NEW_CARDS"`, `"LOCKED"`)
 - **Timer callbacks**: `OnUpdate` handlers with elapsed time accumulation for delayed actions
-- **Global namespace**: Functions and tables exposed globally with `EasyEcho_` prefix (standard WoW addon pattern)
+- **Global namespace**: Functions exposed globally with `EasyEcho_` prefix (standard WoW addon pattern)
+- **SavedVars nil-safety**: Always use `X = X or default` patterns when reading settings that may not exist in older save files
 
 ### Language
 
@@ -103,64 +166,117 @@ Code comments are a mix of English and German. Keep new comments in English.
 
 ## Key APIs
 
-### ProjectEbonhold Perk Service (`ProjectEbonhold.Perks`)
+### ProjectEbonhold Perk Service (`ProjectEbonhold.PerkService`)
 
 ```lua
-ProjectEbonhold.Perks.SelectPerk(spellId)     -- Send selection to server
-ProjectEbonhold.Perks.RequestChoice()          -- Request available perks
-ProjectEbonhold.Perks.RequestReroll()          -- Request a reroll
-ProjectEbonhold.Perks.RequestGrantedPerks()    -- Fetch player's acquired perks
-ProjectEbonhold.Perks.grantedPerks             -- Table of acquired perks (keyed by spell name)
-ProjectEbonhold.Perks.currentChoice            -- Table of currently offered perk options
+ProjectEbonhold.PerkService.SelectPerk(spellId)       -- Send selection to server
+ProjectEbonhold.PerkService.RequestReroll()            -- Request a reroll
+ProjectEbonhold.PerkService.GetCurrentChoice()         -- Table of currently offered perk options
+ProjectEbonhold.PerkService.GetGrantedPerks()          -- Table of player's acquired perks
+```
+
+### ProjectEbonhold Player Run Service (`ProjectEbonhold.PlayerRunService`)
+
+```lua
+ProjectEbonhold.PlayerRunService.GetCurrentData()      -- Returns {usedRerolls, totalRerolls, ...}
 ```
 
 ### WoW API Functions Used
 
 - `CreateFrame()`, `CreateFontString()`, `CreateTexture()` — UI construction
 - `GetSpellInfo(spellId)` — Retrieve spell name, icon, description
+- `UnitLevel("player")` — Player level checks
+- `UnitName("player")`, `GetRealmName()` — Character identity for profile keys
 - `GameTooltip` — Tooltip display
 - `StaticPopup_Show()` — Confirmation dialogs
 - `UIParent` — Root frame for all addon UI
+- `hooksecurefunc()` — Non-destructive function hooking
 
 ## In-Game Commands
 
 | Command | Action |
 |---------|--------|
-| `/easyecho` | Toggle history/stats window |
-| `/ee` | Toggle history/stats window (alias) |
+| `/easyecho` or `/ee` | Toggle main window (History / Stats / Echoes) |
 | `/easyecho config` | Open configuration UI |
+| `/easyecho start` | Start auto-selection |
+| `/easyecho stop` | Stop auto-selection (manual mode) |
+| `/easyecho toggle` | Toggle start / stop |
+
+## Configuration Reference
+
+### Constants (in `EasyEchoCore.lua`)
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `C.DELAY_TIME` | `0.5s` | Wait after perk frame appears before evaluating (overridden by `EasyEchoSettings.TickSpeed`) |
+| `C.MIN_LEVEL_FOR_REROLL` | `11` | Minimum pick counter before rerolls are attempted |
+| `C.MAX_REROLLS_PER_CHOICE` | `10` | Local cap on rerolls per single choice event |
+
+### Settings Keys (in `EasyEchoSettings`)
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `TickSpeed` | `0.5` | Processing delay in seconds (applied to `C.DELAY_TIME` at login) |
+| `AutoResetLogOnDeath` | `false` | If true, reset run data immediately on `PLAYER_DEAD` |
+| `AutoOpenSummaryAt80` | `false` | If true, auto-show main window when reaching level 80 |
+| `IncludeLockedEchoes` | `true` | Include class-locked echoes in echo database display |
+| `CharacterProfiles` | `{}` | Map of `"Name-Realm"` → profile name |
+| `ActiveProfile` | `"Default"` | Currently active profile name |
+| `CurrentPickCount` | `2` | Sequential pick counter for the current run |
+
+### Priority List Format
+
+```
+Spell Name::Quality
+```
+
+Supported qualities: `Common`, `Uncommon`, `Rare`, `Epic`, `Any`
+
+`Any` matches regardless of offered quality.
+
+### Ban List Format
+
+Spell name only, no quality suffix. Matched case-insensitively.
+
+### One-Time Perks
+
+Defined in `EasyEchoCore.lua` as `EasyEcho.ONE_TIME_ONLY_LIST` (format: `"Spell Name::Any"`). Built into a lowercase lookup map `EasyEcho.ONE_TIME_MAP` at load time. If a perk is in this list and the player already has it, it is skipped automatically — no manual configuration needed.
 
 ## Development Workflow
 
 ### Deployment
 
-Copy the `EasyEcho_Addon/` folder into the WoW client's `Interface/AddOns/` directory. No build step is needed.
+Copy the `EasyEcho_Addon/` folder into the WoW client's `Interface/AddOns/EasyEcho/` directory. No build step is needed.
 
-### Adding New Perks
+### Adding New Perks to the Default Priority List
 
-1. Add entries to the default priority list in `EasyEcho.lua` (the `defaultPrioList` table)
-2. Each entry is `{name = "Spell Name", quality = "Quality"}` where quality is one of: `"Common"`, `"Uncommon"`, `"Rare"`, `"Epic"`, `"Any"`
-3. For one-time perks, add the spell name to the `oneTimePerks` table
+1. Add entries to `EasyEcho.DEFAULT_PRIO` in `EasyEchoCore.lua`
+2. Each entry is a string: `"Spell Name::Quality"` where quality is one of `Common`, `Uncommon`, `Rare`, `Epic`, `Any`
+3. For one-time perks, also add the entry to `EasyEcho.ONE_TIME_ONLY_LIST`
 
 ### Modifying the UI
 
-- History/stats UI: edit `EasyEchoUI.lua`
+- History/stats/echoes UI: edit `EasyEchoUI.lua`
 - Config panel: edit `EasyEchoConfig.lua`
-- Perk picker visuals: edit `ProjectEbonhold_Addon/.../perks.lua` (server-side reference)
+- Perk picker visuals: edit `ProjectEbonhold_Addon/.../perks.lua` (server-side reference only)
 
 ### Quality Tiers
 
-The perk system uses these quality tiers (matches WoW item quality naming):
-- Common (white)
-- Uncommon (green)
-- Rare (blue)
-- Epic (purple)
-- Legendary (orange) — used in perks.lua display only
-- Any — wildcard match in priority lists
+| Quality | Color |
+|---------|-------|
+| Common | White |
+| Uncommon | Green |
+| Rare | Blue |
+| Epic | Purple |
+| Legendary | Orange (display only, in `perks.lua`) |
+| Any | Wildcard match in priority/one-time lists |
 
 ## Important Notes
 
-- The `ProjectEbonhold_Addon/` directory is a reference copy of the server addon modules. Changes here do not affect the server directly.
-- The addon uses a 0.5s processing delay (`PROCESS_DELAY`) to ensure the perk picker UI is fully rendered before interacting with it.
+- `ProjectEbonhold_Addon/` is a **reference copy** only. Changes here do not affect the server.
+- `EasyEchoCore.lua` must initialize before `EasyEchoEngine.lua` and `EasyEcho_Main.lua`. Do not reorder the TOC load order.
+- `C.DELAY_TIME` is set at login from `EasyEchoSettings.TickSpeed`; modifying the constant directly after login has no effect until the next session.
 - The `isProcessing` flag prevents race conditions when multiple perk choice events arrive in quick succession.
-- Reroll limits are fetched from the server via `GetServerRunData()` at runtime.
+- Reroll limits are fetched from the server via `EasyEcho.GetServerRunData()` which calls `ProjectEbonhold.PlayerRunService.GetCurrentData()`.
+- Some hook/reset helpers exist in more than one file (noted in README). Maintenance requires updating both copies.
+- `EasyEchoUI.lua` uses reusable row frames for performance. Be careful when adding new row types.

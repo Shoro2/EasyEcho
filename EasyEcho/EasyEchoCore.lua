@@ -157,6 +157,15 @@ function EasyEcho.InitializeSettings()
     EasyEchoSettings.PriorityList = EasyEchoSettings.Profiles[prof].PriorityList
     EasyEchoSettings.BanList      = EasyEchoSettings.Profiles[prof].BanList or {}
     EasyEcho_PrioList             = EasyEchoSettings.PriorityList
+
+    -- General settings defaults
+    if EasyEchoSettings.TickSpeed == nil then EasyEchoSettings.TickSpeed = 0.5 end
+    if EasyEchoSettings.AutoResetLogOnDeath == nil then EasyEchoSettings.AutoResetLogOnDeath = false end
+    if EasyEchoSettings.AutoOpenSummaryAt80 == nil then EasyEchoSettings.AutoOpenSummaryAt80 = false end
+    if EasyEchoSettings.IncludeLockedEchoes == nil then EasyEchoSettings.IncludeLockedEchoes = true end
+
+    -- Apply saved tick speed to the engine constant
+    C.DELAY_TIME = EasyEchoSettings.TickSpeed
 end
 
 function EasyEcho_SwitchProfile(profileName, silent)
