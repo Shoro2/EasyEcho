@@ -159,7 +159,27 @@ local function ProcessChoices()
         return
     end
 
-    -- 2) All banned -> reroll (or fallback left)
+    -- 2) Auto-banish: replace individual choices from banish list using banish tokens
+    local remainingBanishes = EasyEcho.GetRemainingBanishes()
+    if remainingBanishes > 0 then
+        for i, choice in ipairs(choices) do
+            local name = GetSpellInfo(choice.spellId)
+            if name and EasyEcho.IsBanished(name) then
+                if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
+                    ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing: " .. name)
+                    end
+                    EasyEcho.WriteToLog(string.format("ACTION [#%d]: BANISH -> %s (banish list, %d remaining)", pickLevel, name, remainingBanishes - 1))
+                    S.pickerFrame.state = "WAIT_FOR_BANISH"
+                    S.pickerFrame.timer = 0
+                    return
+                end
+            end
+        end
+    end
+
+    -- 3) All banned -> reroll (or fallback left)
     local allBanned, bannedNames = CheckBanned(choices)
     if allBanned then
         if HandleReroll(pickLevel, "All banned: " .. bannedNames) then return end
@@ -168,10 +188,10 @@ local function ProcessChoices()
         return
     end
 
-    -- 3) No priority match -> reroll if possible
+    -- 4) No priority match -> reroll if possible
     if HandleReroll(pickLevel, "No priority match") then return end
 
-    -- 4) Final fallback: left-most non-banned, non-duplicate-one-time choice
+    -- 5) Final fallback: left-most non-banned, non-duplicate-one-time choice
     local fallbackIdx = nil
     for i, choice in ipairs(choices) do
         local fname = GetSpellInfo(choice.spellId)
@@ -243,6 +263,12 @@ S.pickerFrame:SetScript("OnUpdate", function(self, elapsed)
             self.state = nil
             self:Hide()
         end
+
+    elseif self.state == "WAIT_FOR_BANISH" and self.timer > 1.5 then
+        -- Banish replacement should have arrived by now; re-evaluate choices
+        self.timer = 0
+        S.isProcessing = false
+        self.state = "START_DELAY"
 
     elseif self.state == "WAIT_FOR_NEW_CARDS" and self.timer > 0.05 then
         self.timer = 0

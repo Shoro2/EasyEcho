@@ -87,6 +87,7 @@ function EasyEcho_Config.Refresh()
     local list = {}
     if currentView == "Prio" then list = EasyEchoSettings.PriorityList
     elseif currentView == "Ban" then list = EasyEchoSettings.BanList
+    elseif currentView == "Banish" then list = EasyEchoSettings.BanishList or {}
     elseif currentView == "Profiles" then
         for name, _ in pairs(EasyEchoSettings.Profiles) do table.insert(list, name) end
         table.sort(list)
@@ -169,7 +170,8 @@ function EasyEcho_Config.Refresh()
                 row.down:SetText("Save") row.down:Show()
                 row.down:SetScript("OnClick", function()
                     EasyEchoSettings.Profiles[entry].PriorityList = { unpack(EasyEchoSettings.PriorityList) }
-                    EasyEchoSettings.Profiles[entry].BanList = { unpack(EasyEchoSettings.BanList) }
+                    EasyEchoSettings.Profiles[entry].BanList      = { unpack(EasyEchoSettings.BanList) }
+                    EasyEchoSettings.Profiles[entry].BanishList   = { unpack(EasyEchoSettings.BanishList or {}) }
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. entry .. "' saved.")
                 end)
                 -- FIX: Enable/Disable instead of SetEnabled
@@ -198,13 +200,24 @@ function EasyEcho_Config.Refresh()
                 if dbEntry then
                     tooltipDesc = (dbEntry.tooltips and dbEntry.tooltips[sQual]) or dbEntry.tooltip or ""
                 end
-                local tooltipStatus = currentView == "Ban" and "|cffff0000Banned|r" or ("Priority #" .. i .. " (" .. sQual .. ")")
+                local tooltipStatus
+                if currentView == "Ban" then
+                    tooltipStatus = "|cffff0000Banned|r (triggers reroll if all choices banned)"
+                elseif currentView == "Banish" then
+                    tooltipStatus = "|cffff8800Auto-Banish|r (uses banish token to replace this card)"
+                else
+                    tooltipStatus = "Priority #" .. i .. " (" .. sQual .. ")"
+                end
                 row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus }
 
                 row.up:SetText("Up") row.down:SetText("Down")
                 if currentView == "Ban" then
                     row.quality:SetText("BANNED") row.quality:SetTextColor(1, 0, 0)
                     row.up:Hide() row.down:Hide()
+                    if row.prioBtn then row.prioBtn:Hide() end
+                elseif currentView == "Banish" then
+                    row.quality:SetText("BANISH") row.quality:SetTextColor(1, 0.5, 0)
+                    row.up:Show() row.down:Show()
                     if row.prioBtn then row.prioBtn:Hide() end
                 else
                     row.quality:SetText(sQual)
@@ -260,8 +273,11 @@ function EasyEcho_Config.Refresh()
         else
             EasyEchoAddPrio:Show()
             EasyEchoAddPrio:SetText(#list + 1)
-            if currentView == "Prio" then UIDropDownMenu_EnableDropDown(EasyEchoConfigQualityDropDown)
-            else UIDropDownMenu_DisableDropDown(EasyEchoConfigQualityDropDown) end
+            if currentView == "Prio" then
+                UIDropDownMenu_EnableDropDown(EasyEchoConfigQualityDropDown)
+            else
+                UIDropDownMenu_DisableDropDown(EasyEchoConfigQualityDropDown)
+            end
         end
     end
 end
@@ -415,11 +431,17 @@ local function CreateIOFrame()
     save:SetScript("OnClick", function()
         local text = eb:GetText()
         if not text or text == "" then return end
-        local target
+        local target, listName
         if currentView == "Ban" then
             target = EasyEchoSettings.BanList
+            listName = "Ban List"
+        elseif currentView == "Banish" then
+            if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
+            target = EasyEchoSettings.BanishList
+            listName = "Banish List"
         else
             target = EasyEchoSettings.PriorityList
+            listName = "Priority List"
         end
         -- Clear and repopulate
         for k = #target, 1, -1 do target[k] = nil end
@@ -432,7 +454,7 @@ local function CreateIOFrame()
         EasyEcho_Config.Refresh()
         f:Hide()
         if DEFAULT_CHAT_FRAME then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Imported " .. #target .. " entries into " .. (currentView == "Ban" and "Ban List" or "Priority List") .. ".")
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Imported " .. #target .. " entries into " .. listName .. ".")
         end
     end)
 
@@ -448,6 +470,9 @@ local function PopulateIOFrame(ioFrame)
     if currentView == "Ban" then
         source = EasyEchoSettings and EasyEchoSettings.BanList or {}
         ioFrame.title:SetText("Export / Import - Ban List")
+    elseif currentView == "Banish" then
+        source = EasyEchoSettings and EasyEchoSettings.BanishList or {}
+        ioFrame.title:SetText("Export / Import - Banish List")
     else
         source = EasyEchoSettings and EasyEchoSettings.PriorityList or {}
         ioFrame.title:SetText("Export / Import - Priority List")
@@ -503,8 +528,11 @@ function EasyEcho_Config.CreateFrame()
     local bTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     bTab:SetSize(110, 25) bTab:SetPoint("LEFT", pTab, "RIGHT", 5, 0) bTab:SetText("Ban List")
     bTab:SetScript("OnClick", function() currentView = "Ban" EasyEcho_Config.Refresh() end)
+    local banishTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    banishTab:SetSize(110, 25) banishTab:SetPoint("LEFT", bTab, "RIGHT", 5, 0) banishTab:SetText("Banish List")
+    banishTab:SetScript("OnClick", function() currentView = "Banish" EasyEcho_Config.Refresh() end)
     local prTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    prTab:SetSize(110, 25) prTab:SetPoint("LEFT", bTab, "RIGHT", 5, 0) prTab:SetText("Profiles")
+    prTab:SetSize(110, 25) prTab:SetPoint("LEFT", banishTab, "RIGHT", 5, 0) prTab:SetText("Profiles")
     prTab:SetScript("OnClick", function() currentView = "Profiles" EasyEcho_Config.Refresh() end)
 
     -- Search box: second row, left-aligned
@@ -548,11 +576,21 @@ function EasyEcho_Config.CreateFrame()
         local n = addName:GetText()
         if n == "" then return end
         if currentView == "Profiles" then
-            EasyEchoSettings.Profiles[n] = { PriorityList = { unpack(EasyEchoSettings.PriorityList) }, BanList = { unpack(EasyEchoSettings.BanList) } }
+            EasyEchoSettings.Profiles[n] = {
+                PriorityList = { unpack(EasyEchoSettings.PriorityList) },
+                BanList      = { unpack(EasyEchoSettings.BanList) },
+                BanishList   = { unpack(EasyEchoSettings.BanishList or {}) },
+            }
         else
             local clean = n:gsub("[^%a%s']", "")
-            if currentView == "Prio" then table.insert(EasyEchoSettings.PriorityList, tonumber(addPrio:GetText()) or 1, clean .. "::" .. selectedQuality)
-            else table.insert(EasyEchoSettings.BanList, clean) end
+            if currentView == "Prio" then
+                table.insert(EasyEchoSettings.PriorityList, tonumber(addPrio:GetText()) or 1, clean .. "::" .. selectedQuality)
+            elseif currentView == "Ban" then
+                table.insert(EasyEchoSettings.BanList, clean)
+            elseif currentView == "Banish" then
+                if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
+                table.insert(EasyEchoSettings.BanishList, clean)
+            end
         end
         addName:SetText("") EasyEcho_Config.Refresh()
     end)
