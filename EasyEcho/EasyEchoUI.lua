@@ -1783,8 +1783,9 @@ function EasyEcho_UI.UpdateGrantedUI()
     grantedContent:SetHeight(yOffset)
     local visibleH = grantedFrame:GetHeight() - 100
     local maxScroll = math.max(0, yOffset - visibleH)
+    local prevScroll = grantedScrollBar:GetValue()
     grantedScrollBar:SetMinMaxValues(0, maxScroll)
-    grantedScrollBar:SetValue(0)
+    grantedScrollBar:SetValue(math.min(prevScroll, maxScroll))
 
     -- Keep summary in sync if it is currently visible
     if grantedSummaryFrame and grantedSummaryFrame:IsShown() then
