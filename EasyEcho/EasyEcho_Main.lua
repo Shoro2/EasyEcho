@@ -87,6 +87,23 @@ eventFrame:SetScript("OnEvent", function(_, event)
                 EasyEcho_UI.ShowMainWindow()
             end
         end
+        -- Send echo summary to party chat at levels 60, 70, 80
+        do
+            local lvl = UnitLevel("player") or 1
+            if (lvl == 60 or lvl == 70 or lvl == 80) and EasyEcho_UI and EasyEcho_UI.GetGrantedSummary then
+                local cPrio, cEpic, cRare, _, cUncommon, cCommon = EasyEcho_UI.GetGrantedSummary()
+                local cTotal = cEpic + cRare + cUncommon + cCommon
+                local msg = string.format("[EasyEcho] Lvl %d Summary: %d Echoes (%d Epic, %d Rare, %d Uncommon, %d Common | %d Prio)",
+                    lvl, cTotal, cEpic, cRare, cUncommon, cCommon, cPrio)
+                if GetNumPartyMembers and GetNumPartyMembers() > 0 then
+                    SendChatMessage(msg, "PARTY")
+                else
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00" .. msg .. "|r")
+                    end
+                end
+            end
+        end
         return
     end
 

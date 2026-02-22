@@ -1410,6 +1410,11 @@ local function CalculateGrantedSummary()
     return cPrio, cEpic, cRare, cUseless, cUncommon, cCommon
 end
 
+-- Public wrapper so other files (e.g. Main) can access summary stats
+function EasyEcho_UI.GetGrantedSummary()
+    return CalculateGrantedSummary()
+end
+
 -- Refreshes only the label texts of the summary frame (reusable)
 local function RefreshGrantedSummaryLabels()
     if not grantedSummaryFrame then return end
@@ -1474,6 +1479,22 @@ local function ShowGrantedSummary(anchorFrame)
         local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
         closeBtn:SetPoint("TOPRIGHT", -2, -2)
         closeBtn:SetSize(20, 20)
+
+        -- Topmost checkbox: keeps summary frame above all other windows
+        local topmostCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        topmostCB:SetSize(22, 22)
+        topmostCB:SetPoint("BOTTOMLEFT", 8, 6)
+        topmostCB:SetChecked(false)
+        local topmostLabel = topmostCB:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        topmostLabel:SetPoint("LEFT", topmostCB, "RIGHT", 2, 0)
+        topmostLabel:SetText("Topmost")
+        topmostCB:SetScript("OnClick", function(self)
+            if self:GetChecked() then
+                f:SetFrameStrata("FULLSCREEN_DIALOG")
+            else
+                f:SetFrameStrata("DIALOG")
+            end
+        end)
 
         f:Hide()
         grantedSummaryFrame = f
