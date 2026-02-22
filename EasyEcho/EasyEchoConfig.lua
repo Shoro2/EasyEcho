@@ -307,11 +307,12 @@ local function RefreshGeneralSettings()
     f.cbDeath:SetChecked(EasyEchoSettings.AutoResetLogOnDeath and true or false)
     f.cbSummary:SetChecked(EasyEchoSettings.AutoOpenSummaryAt80 and true or false)
     f.cbLocked:SetChecked(EasyEchoSettings.IncludeLockedEchoes ~= false)
+    f.cbPartySummary:SetChecked(EasyEchoSettings.SendPartyChatSummary ~= false)
 end
 
 local function CreateGeneralSettingsFrame()
     local f = CreateFrame("Frame", "EasyEchoGeneralFrame", UIParent)
-    f:SetSize(370, 210)
+    f:SetSize(370, 240)
     f:SetPoint("CENTER", 0, 60)
     f:SetFrameStrata("DIALOG")
     f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
@@ -390,6 +391,11 @@ local function CreateGeneralSettingsFrame()
     f.cbLocked = MakeCheckBox(-138,
         "Include locked echoes in granted echo list",
         function(v) if EasyEchoSettings then EasyEchoSettings.IncludeLockedEchoes = v end end
+    )
+
+    f.cbPartySummary = MakeCheckBox(-166,
+        "Send echo summary to party chat at 60/70/80",
+        function(v) if EasyEchoSettings then EasyEchoSettings.SendPartyChatSummary = v end end
     )
 
     f:Hide()
