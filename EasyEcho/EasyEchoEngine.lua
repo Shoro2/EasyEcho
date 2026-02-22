@@ -152,15 +152,35 @@ local function ProcessChoices()
         S.lastLoggedPick = pickLevel
     end
 
-    -- 1) Priority match
+    local remainingBanishes = EasyEcho.GetRemainingBanishes()
+
+    -- 1) While banishes available: banish commons first so all choices become uncommon+
+    if remainingBanishes > 0 then
+        for i, choice in ipairs(choices) do
+            local name = GetSpellInfo(choice.spellId)
+            if name and (choice.quality or 0) == 0 then
+                if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
+                    ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing common: " .. name)
+                    end
+                    EasyEcho.WriteToLog(string.format("ACTION [#%d]: BANISH -> %s (common quality, %d remaining)", pickLevel, name, remainingBanishes - 1))
+                    S.pickerFrame.state = "WAIT_FOR_BANISH"
+                    S.pickerFrame.timer = 0
+                    return
+                end
+            end
+        end
+    end
+
+    -- 2) Priority match (if banishes were available, all choices are now uncommon+)
     local mSpell, mQual, mIdx = CheckPriority(choices)
     if mSpell then
         SelectSpell(mIdx, mSpell, mQual, pickLevel, true)
         return
     end
 
-    -- 2) Auto-banish: replace individual choices from banish list using banish tokens
-    local remainingBanishes = EasyEcho.GetRemainingBanishes()
+    -- 3) Auto-banish: replace individual choices from banish list using banish tokens
     if remainingBanishes > 0 then
         for i, choice in ipairs(choices) do
             local name = GetSpellInfo(choice.spellId)
@@ -179,19 +199,34 @@ local function ProcessChoices()
         end
     end
 
-    -- 3) All banned -> reroll (or fallback left)
+    -- 4) All banned -> banish if tokens available, otherwise reroll
     local allBanned, bannedNames = CheckBanned(choices)
     if allBanned then
+        if remainingBanishes > 0 then
+            local name = GetSpellInfo(choices[1].spellId)
+            if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
+                ProjectEbonhold.PerkService.BanishPerk(0)
+                if DEFAULT_CHAT_FRAME then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing banned card: " .. (name or "Unknown"))
+                end
+                EasyEcho.WriteToLog(string.format("ACTION [#%d]: BANISH -> %s (all banned, %d remaining)", pickLevel, name or "Unknown", remainingBanishes - 1))
+                S.pickerFrame.state = "WAIT_FOR_BANISH"
+                S.pickerFrame.timer = 0
+                return
+            end
+        end
         if HandleReroll(pickLevel, "All banned: " .. bannedNames) then return end
         local fName = GetSpellInfo(choices[1].spellId)
         SelectSpell(1, fName, choices[1].quality, pickLevel, false)
         return
     end
 
-    -- 4) No priority match -> reroll if possible
-    if HandleReroll(pickLevel, "No priority match") then return end
+    -- 5) No priority match -> reroll only if no banishes left
+    if remainingBanishes <= 0 then
+        if HandleReroll(pickLevel, "No priority match") then return end
+    end
 
-    -- 5) Final fallback: left-most non-banned, non-duplicate-one-time choice
+    -- 6) Final fallback: left-most non-banned, non-duplicate-one-time choice
     local fallbackIdx = nil
     for i, choice in ipairs(choices) do
         local fname = GetSpellInfo(choice.spellId)
