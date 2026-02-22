@@ -582,7 +582,7 @@ function EasyEcho_Config.CreateFrame()
                 BanishList   = { unpack(EasyEchoSettings.BanishList or {}) },
             }
         else
-            local clean = n:gsub("[^%a%s']", "")
+            local clean = n:gsub("[^%a%s'%-]", "")
             if currentView == "Prio" then
                 table.insert(EasyEchoSettings.PriorityList, tonumber(addPrio:GetText()) or 1, clean .. "::" .. selectedQuality)
             elseif currentView == "Ban" then
