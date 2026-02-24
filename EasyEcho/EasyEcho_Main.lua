@@ -12,7 +12,7 @@ eventFrame:RegisterEvent("PLAYER_DEAD")
 eventFrame:RegisterEvent("PLAYER_ALIVE")
 eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
 
-eventFrame:SetScript("OnEvent", function(_, event)
+eventFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_LOGIN" then
         if not EasyEchoLogDB then EasyEchoLogDB = {} end
         if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
@@ -74,6 +74,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
     end
 
     if event == "PLAYER_LEVEL_UP" then
+        local lvl = tonumber(arg1) or UnitLevel("player") or 1
         if EasyEcho_UI and EasyEcho_UI.UpdateEchoListUI and EasyEchoGrantedEchoesFrame and EasyEchoGrantedEchoesFrame:IsShown() then
             EasyEcho_UI.UpdateEchoListUI()
         end
@@ -82,14 +83,12 @@ eventFrame:SetScript("OnEvent", function(_, event)
         end
         -- Auto-open summary screen when reaching level 80
         if EasyEchoSettings and EasyEchoSettings.AutoOpenSummaryAt80 then
-            local lvl = UnitLevel("player") or 1
             if lvl >= 80 and EasyEcho_UI and EasyEcho_UI.ShowMainWindow then
                 EasyEcho_UI.ShowMainWindow()
             end
         end
         -- Send echo summary to party chat at levels 60, 70, 80
-        do
-            local lvl = UnitLevel("player") or 1
+        if EasyEchoSettings and EasyEchoSettings.ChatSummaryAtMilestones ~= false then
             if (lvl == 60 or lvl == 70 or lvl == 80) and EasyEcho_UI and EasyEcho_UI.GetGrantedSummary then
                 local cPrio, cEpic, cRare, _, cUncommon, cCommon = EasyEcho_UI.GetGrantedSummary()
                 local cTotal = cEpic + cRare + cUncommon + cCommon

@@ -931,6 +931,31 @@ local function CreateRowFrame(parent, pool, index)
             end
             UIDropDownMenu_AddButton(info2, level)
 
+            -- Add to Banish List
+            local info2b = UIDropDownMenu_CreateInfo()
+            info2b.text = "Add to Banish List"
+            info2b.notCheckable = true
+            info2b.func = function()
+                if EasyEchoSettings then
+                    if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
+                    local already = false
+                    for _, b in ipairs(EasyEchoSettings.BanishList) do
+                        if string.lower(b) == string.lower(data.name) then already = true; break end
+                    end
+                    if not already then
+                        table.insert(EasyEchoSettings.BanishList, data.name)
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Banish List.")
+                        end
+                    else
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Banish List.")
+                        end
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info2b, level)
+
             -- Cancel
             local info3 = UIDropDownMenu_CreateInfo()
             info3.text = "Cancel"
@@ -1975,6 +2000,31 @@ local function CreateHistoryRowFrame(parent, pool, index)
                 end
             end
             UIDropDownMenu_AddButton(info2, level)
+
+            -- Add to Banish List
+            local info2b = UIDropDownMenu_CreateInfo()
+            info2b.text = "Add to Banish List"
+            info2b.notCheckable = true
+            info2b.func = function()
+                if EasyEchoSettings then
+                    if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
+                    local already = false
+                    for _, b in ipairs(EasyEchoSettings.BanishList) do
+                        if string.lower(b) == string.lower(data.name) then already = true; break end
+                    end
+                    if not already then
+                        table.insert(EasyEchoSettings.BanishList, data.name)
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Banish List.")
+                        end
+                    else
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Banish List.")
+                        end
+                    end
+                end
+            end
+            UIDropDownMenu_AddButton(info2b, level)
 
             -- Cancel
             local info3 = UIDropDownMenu_CreateInfo()
