@@ -164,6 +164,7 @@ function EasyEcho.InitializeSettings()
     if EasyEchoSettings.AutoResetLogOnDeath == nil then EasyEchoSettings.AutoResetLogOnDeath = false end
     if EasyEchoSettings.AutoOpenSummaryAt80 == nil then EasyEchoSettings.AutoOpenSummaryAt80 = false end
     if EasyEchoSettings.IncludeLockedEchoes == nil then EasyEchoSettings.IncludeLockedEchoes = true end
+    if EasyEchoSettings.ChatSummaryAtMilestones == nil then EasyEchoSettings.ChatSummaryAtMilestones = true end
 
     -- Apply saved tick speed to the engine constant
     C.DELAY_TIME = EasyEchoSettings.TickSpeed
