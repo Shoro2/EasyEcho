@@ -109,6 +109,19 @@ local trackedSpell2Box = nil
 local liveUsedRerolls = 0
 local liveTotalRerolls = 10
 
+-- =========================================================
+-- FOCUS RELEASE: click outside EasyEcho frames to release
+-- keyboard focus, allowing ESC / shortcuts to work again.
+-- Controlled by EasyEchoSettings.ReleaseFocusOnClick.
+-- =========================================================
+WorldFrame:HookScript("OnMouseDown", function()
+    if EasyEchoSettings and EasyEchoSettings.ReleaseFocusOnClick == false then return end
+    local focused = GetCurrentKeyBoardFocus()
+    if focused then
+        focused:ClearFocus()
+    end
+end)
+
 local historyStartStopBtn = nil
 local miniStartStopBtn = nil
 
@@ -1451,7 +1464,7 @@ local function RefreshGrantedSummaryLabels()
         return string.format(" (%.0f%%)", n / cTotal * 100)
     end
 
-    grantedSummaryFrame.lblPrio:SetText("Prio-Listen Echoes: " .. cPrio)
+    grantedSummaryFrame.lblPrio:SetText("Prio-List Echoes: " .. cPrio)
     grantedSummaryFrame.lblEpic:SetText("Epic Echoes: " .. cEpic .. pct(cEpic))
     grantedSummaryFrame.lblRare:SetText("Rare Echoes: " .. cRare .. pct(cRare))
     grantedSummaryFrame.lblUncommon:SetText("Uncommon Echoes: " .. cUncommon .. pct(cUncommon))
@@ -1494,7 +1507,7 @@ local function ShowGrantedSummary(anchorFrame)
 
         local Y0 = -32
         local DY = 22
-        f.lblPrio     = AddRow(Y0,          "Prio-Listen Echoes: 0",   0.12, 1.0,  0.0)
+        f.lblPrio     = AddRow(Y0,          "Prio-List Echoes: 0",   0.12, 1.0,  0.0)
         f.lblEpic     = AddRow(Y0 - DY,     "Epic Echoes: 0",          0.64, 0.21, 0.93)
         f.lblRare     = AddRow(Y0 - DY*2,   "Rare Echoes: 0",          0.0,  0.44, 0.87)
         f.lblUncommon = AddRow(Y0 - DY*3,   "Uncommon Echoes: 0",      0.12, 1.0,  0.0)
@@ -1506,6 +1519,7 @@ local function ShowGrantedSummary(anchorFrame)
         closeBtn:SetSize(20, 20)
 
         -- Topmost checkbox: keeps summary frame above all other windows
+        -- and reparents to UIParent so it stays open when the granted frame hides
         local topmostCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
         topmostCB:SetSize(22, 22)
         topmostCB:SetPoint("BOTTOMLEFT", 8, 6)
@@ -1513,11 +1527,14 @@ local function ShowGrantedSummary(anchorFrame)
         local topmostLabel = topmostCB:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         topmostLabel:SetPoint("LEFT", topmostCB, "RIGHT", 2, 0)
         topmostLabel:SetText("Topmost")
+        f.topmostCB = topmostCB
         topmostCB:SetScript("OnClick", function(self)
             if self:GetChecked() then
                 f:SetFrameStrata("FULLSCREEN_DIALOG")
+                f:SetParent(UIParent)
             else
                 f:SetFrameStrata("DIALOG")
+                if anchorFrame then f:SetParent(anchorFrame) end
             end
         end)
 
@@ -1528,7 +1545,9 @@ local function ShowGrantedSummary(anchorFrame)
     -- Refresh data before showing
     RefreshGrantedSummaryLabels()
 
-    if grantedSummaryFrame:IsShown() then
+    -- When topmost is active, the summary should always stay open
+    local isTopmost = grantedSummaryFrame.topmostCB and grantedSummaryFrame.topmostCB:GetChecked()
+    if grantedSummaryFrame:IsShown() and not isTopmost then
         grantedSummaryFrame:Hide()
     else
         grantedSummaryFrame:Show()

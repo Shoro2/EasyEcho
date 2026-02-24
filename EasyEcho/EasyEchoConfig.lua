@@ -308,11 +308,12 @@ local function RefreshGeneralSettings()
     f.cbSummary:SetChecked(EasyEchoSettings.AutoOpenSummaryAt80 and true or false)
     f.cbLocked:SetChecked(EasyEchoSettings.IncludeLockedEchoes ~= false)
     f.cbChatSummary:SetChecked(EasyEchoSettings.ChatSummaryAtMilestones ~= false)
+    f.cbReleaseFocus:SetChecked(EasyEchoSettings.ReleaseFocusOnClick ~= false)
 end
 
 local function CreateGeneralSettingsFrame()
     local f = CreateFrame("Frame", "EasyEchoGeneralFrame", UIParent)
-    f:SetSize(370, 238)
+    f:SetSize(370, 268)
     f:SetPoint("CENTER", 0, 60)
     f:SetFrameStrata("DIALOG")
     f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
@@ -396,6 +397,11 @@ local function CreateGeneralSettingsFrame()
     f.cbChatSummary = MakeCheckBox(-166,
         "Send echo summary at level 60/70/80",
         function(v) if EasyEchoSettings then EasyEchoSettings.ChatSummaryAtMilestones = v end end
+    )
+
+    f.cbReleaseFocus = MakeCheckBox(-194,
+        "Release focus when clicking outside window",
+        function(v) if EasyEchoSettings then EasyEchoSettings.ReleaseFocusOnClick = v end end
     )
 
     f:Hide()
