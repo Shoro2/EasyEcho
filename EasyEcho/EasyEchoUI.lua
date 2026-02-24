@@ -1000,6 +1000,7 @@ local function CreateTooltipCalcConfigFrame(parent)
         tile = true, tileSize = 16, edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 }
     })
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
     f:SetFrameStrata("DIALOG")
     f:EnableMouse(true)
 
@@ -1125,6 +1126,7 @@ local function CreateEchoesFrame()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
 
     -- Title
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1485,6 +1487,7 @@ local function ShowGrantedSummary(anchorFrame)
             tile = true, tileSize = 16, edgeSize = 16,
             insets = { left = 4, right = 4, top = 4, bottom = 4 }
         })
+        f:SetBackdropColor(0.1, 0.1, 0.1, 1)
         f:SetFrameStrata("DIALOG")
         f:SetMovable(true)
         f:EnableMouse(true)
@@ -1576,6 +1579,7 @@ local function CreateGrantedFrame()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -15)
@@ -2077,13 +2081,14 @@ local function CreateHistoryFrame()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", f, "TOP", 0, -15)
     title:SetText("EasyEcho History & Stats")
 
     local statsBg = f:CreateTexture(nil, "BACKGROUND")
-    statsBg:SetTexture(0, 0, 0, 0.3)
+    statsBg:SetTexture(0, 0, 0, 0.6)
     statsBg:SetPoint("TOPLEFT", 15, -35)
     statsBg:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", -15, -110)
 

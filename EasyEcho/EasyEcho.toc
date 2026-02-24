@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: EasyEcho
-## SavedVariables: EasyEchoLogDB, EasyEchoHistoryDB, EasyEchoSettings, EasyEchoEchoDB
+## SavedVariables: EasyEchoHistoryDB, EasyEchoSettings
 
 EasyEchoUI.lua
 EasyEchoConfig.lua

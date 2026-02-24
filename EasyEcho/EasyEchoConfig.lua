@@ -324,6 +324,7 @@ local function CreateGeneralSettingsFrame()
         tile = true, tileSize = 32, edgeSize = 32,
         insets = { left = 11, right = 12, top = 12, bottom = 11 }
     })
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
 
     -- Title
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -417,6 +418,7 @@ local function CreateIOFrame()
     f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving) f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", tile=true, tileSize=32, edgeSize=32, insets={left=11, right=12, top=12, bottom=11}})
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
 
     -- Title
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -499,6 +501,7 @@ function EasyEcho_Config.CreateFrame()
     local f = CreateFrame("Frame", "EasyEchoConfigFrame", UIParent)
     f:SetSize(700, 700) f:SetPoint("CENTER", 100, 0)
     f:SetBackdrop({bgFile="Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border", tile=true, tileSize=32, edgeSize=32, insets={left=11, right=12, top=12, bottom=11}})
+    f:SetBackdropColor(0.1, 0.1, 0.1, 1)
     f:SetMovable(true) f:EnableMouse(true) f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart", f.StartMoving) f:SetScript("OnDragStop", f.StopMovingOrSizing)
 
