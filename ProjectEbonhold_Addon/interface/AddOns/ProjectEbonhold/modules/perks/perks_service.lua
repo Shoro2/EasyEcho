@@ -219,7 +219,18 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_BANISH_REPLACEMENT_PERK,
         return
     end
     
-    local newSpellId = tonumber(body)
+    -- Parse the replacement perk data: "new_spell_id,new_quality"
+    local newSpellId, newQuality
+    local commaPos = string.find(body, ",")
+    if commaPos then
+        newSpellId = tonumber(string.sub(body, 1, commaPos - 1))
+        newQuality = tonumber(string.sub(body, commaPos + 1))
+    else
+        -- Fallback for old format (just spell ID)
+        newSpellId = tonumber(body)
+        newQuality = 0
+    end
+    
     -- -- print("[DEBUG] Banish response - newSpellId: " .. tostring(newSpellId) .. " for perkIndex: " .. tostring(perkIndex))
     
     if not newSpellId then
@@ -246,8 +257,7 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_BANISH_REPLACEMENT_PERK,
         local oldQuality = Perks.currentChoice[perkIndex + 1].quality
         
         Perks.currentChoice[perkIndex + 1].spellId = newSpellId
-        -- Keep the same quality for the replacement perk, or default to 0
-        -- Server can send quality info later if needed
+        Perks.currentChoice[perkIndex + 1].quality = newQuality or 0
         
         -- -- print("[DEBUG] Replaced spell " .. tostring(oldSpellId) .. " with " .. tostring(newSpellId))
         
