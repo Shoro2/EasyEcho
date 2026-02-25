@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**EasyEcho** is a World of Warcraft addon for the ProjectEbonhold private server (WoW 3.3.5a / Interface 30300). It automates perk ("echo") selection during character progression runs by choosing from offered perks based on user-defined priority and ban lists. It supports multiple profiles, rerolling, history tracking, statistics, and a persistent echo catalog.
+**EasyEcho** is a World of Warcraft addon for the ProjectEbonhold private server (WoW 3.3.5a / Interface 30300). It automates perk ("echo") selection during character progression runs by choosing from offered perks based on user-defined priority and ban lists. It supports multiple profiles, rerolling, history tracking, statistics, and a complete echo catalog powered by the `ProjectEbonhold.PerkDatabase` API.
 
 ## Repository Structure
 
@@ -22,11 +22,17 @@ EasyEcho/
     └── interface/AddOns/ProjectEbonhold/modules/
         ├── perks/
         │   ├── perks.lua            # Perk picker UI: frame rendering, animations, quality colors
-        │   └── perks_service.lua    # Perk service API: server communication, event dispatching
-        └── playerRun/
-            ├── player_run_service.lua
-            ├── player_run_ui.lua
-            └── deathFrame.lua
+        │   ├── perks_service.lua    # Perk service API: server communication, event dispatching
+        │   ├── perks_data.lua       # PerkDatabase: complete echo catalog (~300 spells with metadata)
+        │   └── perks_browser.lua    # Echo browser UI with search, class filter, quality filter
+        ├── playerRun/
+        │   ├── player_run_service.lua
+        │   ├── player_run_ui.lua
+        │   └── deathFrame.lua
+        ├── shop/
+        │   └── shop.lua
+        └── voidStorage/
+            └── voidStorage_service.lua
 ```
 
 ### Load Order (defined in EasyEcho.toc)
@@ -47,14 +53,14 @@ EasyEcho/
 - `EasyEchoLogDB` — Timestamped debug/decision log (capped at ~2000 entries)
 - `EasyEchoHistoryDB` — Perk selection history entries (OPTIONS, SELECT, REROLL)
 - `EasyEchoSettings` — User settings, priority lists, ban lists, profiles, character-specific profile memory
-- `EasyEchoEchoDB` — Persistent echo catalog: name, tooltip, qualities, first/last seen, classes
+- ~~`EasyEchoEchoDB`~~ — *Removed:* Echo catalog now provided by `ProjectEbonhold.PerkDatabase` API
 
 ## Tech Stack
 
 - **Language:** Lua 5.1 (WoW embedded scripting)
 - **Platform:** World of Warcraft 3.3.5a (WotLK) private server
 - **Framework:** WoW Addon API (TOC-based addon system)
-- **External dependencies:** ProjectEbonhold server addon (provides `ProjectEbonhold.PerkService` and `ProjectEbonhold.PlayerRunService`)
+- **External dependencies:** ProjectEbonhold server addon (provides `ProjectEbonhold.PerkService`, `ProjectEbonhold.PlayerRunService`, and `ProjectEbonhold.PerkDatabase`)
 - **Build system:** None — pure Lua source files deployed directly
 - **Tests:** None
 - **Linting/Formatting:** None configured
@@ -133,7 +139,7 @@ The main window (`/ee` or `/easyecho`) has three tabs:
 - **Stats** — tracked spells, epic/rare counters, live reroll display
 - **Granted Echoes** — list of currently owned perks with quality summary popup
 
-**Echo Database** — persistent catalog of all ever-seen echoes, searchable and sortable. Stored in `EasyEchoEchoDB`.
+**Echo Database** — complete catalog of all echoes, searchable and sortable. Data comes from `ProjectEbonhold.PerkDatabase` API (no longer self-built).
 
 All windows are movable and resizable (Shift+drag corner handles). The addon remembers which windows were open per character.
 

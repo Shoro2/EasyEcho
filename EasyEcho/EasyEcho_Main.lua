@@ -17,7 +17,6 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
         if not EasyEchoLogDB then EasyEchoLogDB = {} end
         if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
         if not EasyEchoSettings then EasyEchoSettings = {} end
-        if not EasyEchoEchoDB then EasyEchoEchoDB = {} end
 
         if EasyEcho.InitializeSettings then EasyEcho.InitializeSettings() end
         if not EasyEchoSettings.CurrentPickCount then EasyEchoSettings.CurrentPickCount = 2 end

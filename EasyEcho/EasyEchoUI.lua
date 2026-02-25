@@ -241,7 +241,7 @@ local QUALITY_COLORS = {
 }
 
 -- =========================================================
--- ECHO DATABASE - Persistent catalog of all discovered echoes
+-- ECHO DATABASE - powered by ProjectEbonhold.PerkDatabase API
 -- =========================================================
 local scanTooltip = CreateFrame("GameTooltip", "EasyEchoScanTooltip", nil, "GameTooltipTemplate")
 scanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
@@ -263,82 +263,81 @@ local function GetSpellTooltipText(spellId)
     return table.concat(lines, "\n")
 end
 
+-- Class mask constants for PerkDatabase lookups
+local CLASS_MASK_VALUES = {
+    WARRIOR = 1, PALADIN = 2, HUNTER = 4, ROGUE = 8, PRIEST = 16,
+    DEATHKNIGHT = 32, SHAMAN = 64, MAGE = 128, WARLOCK = 256, DRUID = 1024
+}
+local CLASS_MASK_ORDER = {
+    { mask = 1,    name = "Warrior" },
+    { mask = 2,    name = "Paladin" },
+    { mask = 4,    name = "Hunter" },
+    { mask = 8,    name = "Rogue" },
+    { mask = 16,   name = "Priest" },
+    { mask = 32,   name = "Death Knight" },
+    { mask = 64,   name = "Shaman" },
+    { mask = 128,  name = "Mage" },
+    { mask = 256,  name = "Warlock" },
+    { mask = 1024, name = "Druid" },
+}
+
+-- Decode classMask bitmask to display string
+local function ClassMaskToDisplay(classMask)
+    if not classMask or classMask == 0 then return "" end
+    if classMask == 1535 then return "All" end
+    local names = {}
+    for _, cls in ipairs(CLASS_MASK_ORDER) do
+        if bit.band(classMask, cls.mask) > 0 then
+            table.insert(names, cls.name)
+        end
+    end
+    if #names > 2 then return "Multiple" end
+    return table.concat(names, ", ")
+end
+
+-- Check if classMask includes a specific class filter
+local function ClassMaskMatchesFilter(classMask, filterKey)
+    if not filterKey or filterKey == "All" then return true end
+    if not classMask or classMask == 0 then return false end
+    local filterMask = CLASS_MASK_VALUES[filterKey]
+    if not filterMask then return false end
+    return bit.band(classMask, filterMask) > 0
+end
+
+-- Lookup a perk from PerkDatabase by spellId
+local function GetPerkDBEntry(spellId)
+    if not spellId then return nil end
+    if ProjectEbonhold and ProjectEbonhold.PerkDatabase then
+        return ProjectEbonhold.PerkDatabase[spellId]
+    end
+    return nil
+end
+
+-- Find spellId in PerkDatabase by name and quality
+local function FindPerkByNameAndQuality(name, quality)
+    if not name or not ProjectEbonhold or not ProjectEbonhold.PerkDatabase then return nil end
+    local searchLower = string.lower(name)
+    for spellId, data in pairs(ProjectEbonhold.PerkDatabase) do
+        if data.quality == quality then
+            local spellName = GetSpellInfo(spellId)
+            if spellName and string.lower(spellName) == searchLower then
+                return spellId, data
+            end
+        end
+    end
+    -- Fallback: match by name only (any quality)
+    for spellId, data in pairs(ProjectEbonhold.PerkDatabase) do
+        local spellName = GetSpellInfo(spellId)
+        if spellName and string.lower(spellName) == searchLower then
+            return spellId, data
+        end
+    end
+    return nil
+end
+
+-- No-op: recording is no longer needed since PerkDatabase provides all data
 function EasyEcho_RecordEcho(spellId, quality)
-    if not spellId then return end
-    if not EasyEchoEchoDB then EasyEchoEchoDB = {} end
-
-    local name, _, icon = GetSpellInfo(spellId)
-    if not name or name == "" then return end
-
-    local key = string.lower(name)
-    local qualityName = QUALITY_NAMES[quality] or "Common"
-    local _, playerClass = UnitClass("player")
-
-    if not EasyEchoEchoDB[key] then
-        -- New echo discovered
-        local tooltip = GetSpellTooltipText(spellId)
-        EasyEchoEchoDB[key] = {
-            name = name,
-            spellId = spellId,
-            icon = icon or "",
-            tooltip = tooltip,
-            tooltips = { [qualityName] = tooltip },
-            classes = {},
-            qualities = {},
-            firstSeen = time(),
-            lastSeen = time()
-        }
-    end
-
-    -- Migrate old single-class field to classes table
-    local entry = EasyEchoEchoDB[key]
-    if entry.class and not entry.classes then
-        entry.classes = {}
-    end
-    if entry.class then
-        if entry.class ~= "UNKNOWN" and entry.class ~= "" then
-            entry.classes[entry.class] = true
-        end
-        entry.class = nil
-    end
-
-    -- Record this class
-    if playerClass and playerClass ~= "UNKNOWN" and playerClass ~= "" then
-        if not entry.classes then entry.classes = {} end
-        entry.classes[playerClass] = true
-    end
-
-    -- Record this quality if not yet seen
-    if not EasyEchoEchoDB[key].qualities[qualityName] then
-        EasyEchoEchoDB[key].qualities[qualityName] = true
-    end
-    EasyEchoEchoDB[key].lastSeen = time()
-
-    -- Backfill spellId and icon for older entries
-    if not EasyEchoEchoDB[key].spellId then
-        EasyEchoEchoDB[key].spellId = spellId
-    end
-    if not EasyEchoEchoDB[key].icon or EasyEchoEchoDB[key].icon == "" then
-        EasyEchoEchoDB[key].icon = icon or ""
-    end
-
-    -- Ensure tooltips table exists (migration from old format)
-    if not EasyEchoEchoDB[key].tooltips then
-        EasyEchoEchoDB[key].tooltips = {}
-    end
-
-    -- Store/update tooltip for this specific quality tier
-    if not EasyEchoEchoDB[key].tooltips[qualityName] or EasyEchoEchoDB[key].tooltips[qualityName] == "" then
-        local qualityTooltip = GetSpellTooltipText(spellId)
-        if qualityTooltip and qualityTooltip ~= "" then
-            EasyEchoEchoDB[key].tooltips[qualityName] = qualityTooltip
-        end
-    end
-
-    -- Keep legacy tooltip field updated as fallback
-    if not EasyEchoEchoDB[key].tooltip or EasyEchoEchoDB[key].tooltip == "" then
-        EasyEchoEchoDB[key].tooltip = GetSpellTooltipText(spellId)
-    end
+    -- Intentionally empty: echo catalog now comes from ProjectEbonhold.PerkDatabase
 end
 
 local function GetTrackedSpellNames()
@@ -518,84 +517,42 @@ local function GetPrioRank(name, quality)
     return 99999
 end
 
--- Returns one entry per quality tier per echo (flat list)
+-- Returns one entry per perk from PerkDatabase (flat list)
 local function GetEchoDBSorted()
-    if not EasyEchoEchoDB then return {} end
+    if not ProjectEbonhold or not ProjectEbonhold.PerkDatabase then return {} end
 
     local entries = {}
     local searchLower = string.lower(echoesSearchText or "")
-    local qualityOrder = { 4, 3, 2, 1, 0 }
 
-    for key, data in pairs(EasyEchoEchoDB) do
-        if type(data) == "table" and data.name then
-            -- Search across all quality-specific tooltips and legacy tooltip
-            local tooltipMatch = false
+    for spellId, data in pairs(ProjectEbonhold.PerkDatabase) do
+        local spellName, _, spellIcon = GetSpellInfo(spellId)
+        if spellName then
+            -- Search filter: match name or comment
+            local matchesSearch = true
             if searchLower ~= "" then
-                if data.tooltips then
-                    for _, tt in pairs(data.tooltips) do
-                        if tt and string.lower(tt):find(searchLower, 1, true) then
-                            tooltipMatch = true
-                            break
-                        end
-                    end
-                end
-                if not tooltipMatch and data.tooltip then
-                    tooltipMatch = string.lower(data.tooltip):find(searchLower, 1, true) ~= nil
-                end
-            end
-            local match = (searchLower == "" or string.lower(data.name):find(searchLower, 1, true) or tooltipMatch)
-
-            -- Build classes set (handle migration from old single class field)
-            local classesSet = data.classes or {}
-            if data.class and not data.classes then
-                classesSet = {}
-                if data.class ~= "UNKNOWN" and data.class ~= "" then
-                    classesSet[data.class] = true
+                matchesSearch = string.lower(spellName):find(searchLower, 1, true) ~= nil
+                if not matchesSearch and data.comment then
+                    matchesSearch = string.lower(data.comment):find(searchLower, 1, true) ~= nil
                 end
             end
 
-            -- Apply class filter
-            local classMatch = true
-            if echoesClassFilter and echoesClassFilter ~= "All" then
-                classMatch = classesSet[echoesClassFilter] == true
-            end
+            -- Class filter using bitmask
+            local matchesClass = ClassMaskMatchesFilter(data.classMask, echoesClassFilter)
 
-            if match and classMatch and data.qualities then
-                -- Build display string for all classes
-                local classNames = {}
-                for cls in pairs(classesSet) do
-                    table.insert(classNames, cls:sub(1, 1) .. cls:sub(2):lower())
-                end
-                table.sort(classNames)
-                local classDisplay
-                if #classNames > 1 then
-                    classDisplay = "Multiple"
-                elseif #classNames == 1 then
-                    classDisplay = classNames[1]
-                else
-                    classDisplay = ""
-                end
-
-                for _, qIdx in ipairs(qualityOrder) do
-                    local qName = QUALITY_NAMES[qIdx]
-                    if qName and data.qualities[qName] then
-                        -- Use quality-specific tooltip, fall back to legacy tooltip
-                        local entryTooltip = (data.tooltips and data.tooltips[qName]) or data.tooltip or ""
-                        table.insert(entries, {
-                            key = key,
-                            name = data.name,
-                            icon = data.icon or "",
-                            spellId = data.spellId,
-                            tooltip = entryTooltip,
-                            classes = classesSet,
-                            classDisplay = classDisplay,
-                            quality = qIdx,
-                            firstSeen = data.firstSeen or 0,
-                            lastSeen = data.lastSeen or 0,
-                            prioRank = GetPrioRank(data.name, qIdx)
-                        })
-                    end
-                end
+            if matchesSearch and matchesClass then
+                table.insert(entries, {
+                    key = string.lower(spellName),
+                    name = spellName,
+                    icon = spellIcon or "",
+                    spellId = spellId,
+                    classMask = data.classMask or 0,
+                    classDisplay = ClassMaskToDisplay(data.classMask),
+                    quality = data.quality or 0,
+                    maxStack = data.maxStack or 1,
+                    requiredSpell = data.requiredSpell or 0,
+                    comment = data.comment or "",
+                    prioRank = GetPrioRank(spellName, data.quality)
+                })
             end
         end
     end
@@ -606,14 +563,14 @@ local function GetEchoDBSorted()
                 return string.lower(a.name) < string.lower(b.name)
             end
             return a.quality > b.quality
-        elseif echoesSortMode == "lastseen" then
-            if a.lastSeen ~= b.lastSeen then
-                return a.lastSeen > b.lastSeen
+        elseif echoesSortMode == "maxstack" then
+            if a.maxStack ~= b.maxStack then
+                return a.maxStack > b.maxStack
             end
-            if string.lower(a.name) ~= string.lower(b.name) then
-                return string.lower(a.name) < string.lower(b.name)
+            if a.quality ~= b.quality then
+                return a.quality > b.quality
             end
-            return a.quality > b.quality
+            return string.lower(a.name) < string.lower(b.name)
         elseif echoesSortMode == "prio" then
             if a.prioRank ~= b.prioRank then
                 return a.prioRank < b.prioRank
@@ -671,28 +628,15 @@ local function GetGrantedEchoesSorted()
         local key = string.lower(name) .. "::" .. tostring(quality)
 
         if not grouped[key] then
-            -- Look up icon and tooltip from EchoDB
-            local dbKey = string.lower(name)
-            local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[dbKey]
-            local icon = ""
-            local tooltip = ""
-            if dbEntry then
-                icon = dbEntry.icon or ""
-                -- Use quality-specific tooltip, fall back to legacy tooltip
-                local qualName = QUALITY_NAMES[quality] or "Common"
-                tooltip = (dbEntry.tooltips and dbEntry.tooltips[qualName]) or dbEntry.tooltip or ""
-            end
-            if icon == "" then
-                local _, _, spellIcon = GetSpellInfo(spellId)
-                icon = spellIcon or ""
-            end
+            local _, _, spellIcon = GetSpellInfo(spellId)
+            local perkData = GetPerkDBEntry(spellId)
 
             grouped[key] = {
                 name = name,
                 spellId = spellId,
                 quality = quality,
-                icon = icon,
-                tooltip = tooltip,
+                icon = spellIcon or "",
+                maxStack = perkData and perkData.maxStack or 1,
                 count = 0,
                 prioRank = GetPrioRank(name, quality)
             }
@@ -729,8 +673,18 @@ local function GetGrantedEchoesSorted()
     local filtered = {}
     local searchLower = string.lower(grantedSearchText or "")
     for _, entry in ipairs(groupedOrder) do
-        if searchLower == "" or string.lower(entry.name):find(searchLower, 1, true)
-            or (entry.tooltip and entry.tooltip ~= "" and string.lower(entry.tooltip):find(searchLower, 1, true)) then
+        local matchesSearch = true
+        if searchLower ~= "" then
+            matchesSearch = string.lower(entry.name):find(searchLower, 1, true) ~= nil
+            -- Also search PerkDatabase comment for this spell
+            if not matchesSearch and entry.spellId then
+                local perkData = GetPerkDBEntry(entry.spellId)
+                if perkData and perkData.comment then
+                    matchesSearch = string.lower(perkData.comment):find(searchLower, 1, true) ~= nil
+                end
+            end
+        end
+        if matchesSearch then
             table.insert(filtered, entry)
         end
     end
@@ -837,32 +791,30 @@ local function CreateRowFrame(parent, pool, index)
             GameTooltip:AddLine("Stacks: " .. data.count, 1, 1, 1)
         end
 
-        -- Classes
-        if data.classes then
-            local names = {}
-            for cls in pairs(data.classes) do
-                table.insert(names, cls:sub(1, 1) .. cls:sub(2):lower())
-            end
-            table.sort(names)
-            if #names > 0 then
-                GameTooltip:AddLine("Discovered as: " .. table.concat(names, ", "), 0.5, 0.5, 0.5)
-            end
-        elseif data.classDisplay and data.classDisplay ~= "" then
-            GameTooltip:AddLine("Discovered as: " .. data.classDisplay, 0.5, 0.5, 0.5)
+        -- Max stack info from PerkDatabase
+        if data.maxStack and data.maxStack > 1 then
+            GameTooltip:AddLine("Max Stack: " .. data.maxStack, 0.7, 0.7, 0.7)
         end
 
-        -- Timestamps
-        if data.firstSeen and data.firstSeen > 0 then
-            GameTooltip:AddLine("First seen: " .. date("%m/%d/%y %H:%M", data.firstSeen), 0.5, 0.5, 0.5)
+        -- Classes from classMask
+        if data.classDisplay and data.classDisplay ~= "" then
+            GameTooltip:AddLine("Classes: " .. data.classDisplay, 0.5, 0.5, 0.5)
+        elseif data.classMask then
+            local classStr = ClassMaskToDisplay(data.classMask)
+            if classStr ~= "" then
+                GameTooltip:AddLine("Classes: " .. classStr, 0.5, 0.5, 0.5)
+            end
         end
-        if data.lastSeen and data.lastSeen > 0 then
-            GameTooltip:AddLine("Last seen: " .. date("%m/%d/%y %H:%M", data.lastSeen), 0.5, 0.5, 0.5)
+
+        -- Tome requirement
+        if data.requiredSpell and data.requiredSpell ~= 0 then
+            GameTooltip:AddLine("Requires Tome to unlock", 1, 0.82, 0)
         end
 
         -- Spell description
         GameTooltip:AddLine(" ")
-        local desc = data.tooltip or ""
-        if desc == "" and data.spellId then
+        local desc = ""
+        if data.spellId then
             desc = GetSpellTooltipText(data.spellId)
         end
         desc = EvaluateTooltipFormulas(desc)
@@ -1162,7 +1114,7 @@ local function CreateEchoesFrame()
     end)
     calcConfigBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Discovered count label
+    -- Available count label
     echoesCountLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     echoesCountLabel:SetPoint("TOPLEFT", 18, -35)
     echoesCountLabel:SetTextColor(0.7, 0.7, 0.7)
@@ -1194,7 +1146,7 @@ local function CreateEchoesFrame()
         local options = {
             { text = "Rarity", value = "rarity" },
             { text = "Name", value = "name" },
-            { text = "Last Seen", value = "lastseen" },
+            { text = "Max Stack", value = "maxstack" },
             { text = "Prio List", value = "prio" }
         }
 
@@ -1742,39 +1694,9 @@ end
 function EasyEcho_UI.UpdateGrantedUI()
     if not grantedFrame then CreateGrantedFrame() end
 
-    -- Ingest granted/locked perks into EchoDB
+    -- Request fresh granted perks from server
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestGrantedPerks then
         ProjectEbonhold.PerkService.RequestGrantedPerks()
-    end
-
-    local function RecordPerks(container)
-        if type(container) ~= "table" then return end
-        if container[1] then
-            for _, perk in ipairs(container) do
-                if type(perk) == "table" and perk.spellId then
-                    EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
-                end
-            end
-        else
-            for _, perkList in pairs(container) do
-                if type(perkList) == "table" then
-                    for _, perk in ipairs(perkList) do
-                        if type(perk) == "table" and perk.spellId then
-                            EasyEcho_RecordEcho(perk.spellId, perk.quality or 0)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if ProjectEbonhold and ProjectEbonhold.PerkService then
-        if ProjectEbonhold.PerkService.GetGrantedPerks then RecordPerks(ProjectEbonhold.PerkService.GetGrantedPerks()) end
-        if ProjectEbonhold.PerkService.GetLockedPerks then RecordPerks(ProjectEbonhold.PerkService.GetLockedPerks()) end
-    end
-    if ProjectEbonhold and ProjectEbonhold.Perks then
-        if ProjectEbonhold.Perks.grantedPerks then RecordPerks(ProjectEbonhold.Perks.grantedPerks) end
-        if ProjectEbonhold.Perks.lockedPerks then RecordPerks(ProjectEbonhold.Perks.lockedPerks) end
     end
 
     -- Update header title with total echo count
@@ -1927,31 +1849,25 @@ local function CreateHistoryRowFrame(parent, pool, index)
             GameTooltip:AddLine("Priority Pick", 0, 1, 0)
         end
 
-        -- Look up extended info from EchoDB
-        local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[string.lower(data.name or "")]
-        if dbEntry then
-            if dbEntry.classes then
-                local names = {}
-                for cls in pairs(dbEntry.classes) do
-                    table.insert(names, cls:sub(1, 1) .. cls:sub(2):lower())
-                end
-                table.sort(names)
-                if #names > 0 then
-                    GameTooltip:AddLine("Discovered as: " .. table.concat(names, ", "), 0.5, 0.5, 0.5)
-                end
+        -- Look up extended info from PerkDatabase
+        local perkSpellId, perkData = FindPerkByNameAndQuality(data.name, data.quality or 0)
+        if perkData then
+            local classStr = ClassMaskToDisplay(perkData.classMask)
+            if classStr ~= "" then
+                GameTooltip:AddLine("Classes: " .. classStr, 0.5, 0.5, 0.5)
             end
+        end
 
-            GameTooltip:AddLine(" ")
-            local desc = (dbEntry.tooltips and dbEntry.tooltips[qName]) or dbEntry.tooltip or ""
-            if desc == "" and dbEntry.spellId then
-                desc = GetSpellTooltipText(dbEntry.spellId)
-            end
-            desc = EvaluateTooltipFormulas(desc)
-            if desc and desc ~= "" then
-                GameTooltip:AddLine(desc, 1, 0.82, 0, true)
-            else
-                GameTooltip:AddLine("No description available.", 0.5, 0.5, 0.5)
-            end
+        GameTooltip:AddLine(" ")
+        local desc = ""
+        if perkSpellId then
+            desc = GetSpellTooltipText(perkSpellId)
+        end
+        desc = EvaluateTooltipFormulas(desc)
+        if desc and desc ~= "" then
+            GameTooltip:AddLine(desc, 1, 0.82, 0, true)
+        else
+            GameTooltip:AddLine("No description available.", 0.5, 0.5, 0.5)
         end
 
         GameTooltip:Show()
@@ -2513,12 +2429,10 @@ function EasyEcho_UI.UpdateHistoryUI()
             row:SetWidth(contentWidth)
             row:SetHeight(HIST_ROW_HEIGHT)
 
-            -- Icon from EchoDB
-            local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[string.lower(entry.name or "")]
-            if dbEntry and dbEntry.icon and dbEntry.icon ~= "" then
-                row.icon:SetTexture(dbEntry.icon)
-            elseif dbEntry and dbEntry.spellId then
-                local _, _, spellIcon = GetSpellInfo(dbEntry.spellId)
+            -- Icon from PerkDatabase via GetSpellInfo
+            local perkSpellId = FindPerkByNameAndQuality(entry.name, entry.quality or 0)
+            if perkSpellId then
+                local _, _, spellIcon = GetSpellInfo(perkSpellId)
                 row.icon:SetTexture(spellIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
             else
                 row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
@@ -2568,20 +2482,6 @@ function EasyEcho_UI.AddSelectToHistory(name, quality, levelCount, isPrio)
     if not EasyEchoHistoryDB then EasyEchoHistoryDB = {} end
     table.insert(EasyEchoHistoryDB, {type="SELECT", name=name, quality=quality, level=levelCount, isPrio=isPrio, timestamp=time()})
     EasyEcho_UI.UpdateHistoryUI()
-
-    -- Record selected echo to persistent database
-    if name and ProjectEbonhold and ProjectEbonhold.PerkService then
-        local choices = ProjectEbonhold.PerkService.GetCurrentChoice and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
-        if choices then
-            for _, choice in ipairs(choices) do
-                local cName = GetSpellInfo(choice.spellId)
-                if cName and string.lower(cName) == string.lower(name) then
-                    EasyEcho_RecordEcho(choice.spellId, quality)
-                    break
-                end
-            end
-        end
-    end
 end
 
 function EasyEcho_UI.AddOptionsToHistory(choices, levelCount)
@@ -2597,9 +2497,6 @@ function EasyEcho_UI.AddOptionsToHistory(choices, levelCount)
     for i, choice in ipairs(choices) do
         optString = optString .. (GetSpellInfo(choice.spellId) or "?") .. "(" .. string.sub(QUALITY_NAMES[choice.quality] or "C", 1, 1) .. ")"
         if i < #choices then optString = optString .. ", " end
-
-        -- Record each offered echo to persistent database
-        EasyEcho_RecordEcho(choice.spellId, choice.quality)
     end
 
     table.insert(EasyEchoHistoryDB, {type="OPTIONS", text=optString, level=levelCount, timestamp=time()})
@@ -2656,11 +2553,11 @@ function EasyEcho_UI.UpdateEchoListUI()
 
     -- Update count label
     local totalCount = 0
-    if EasyEchoEchoDB then
-        for _ in pairs(EasyEchoEchoDB) do totalCount = totalCount + 1 end
+    if ProjectEbonhold and ProjectEbonhold.PerkDatabase then
+        for _ in pairs(ProjectEbonhold.PerkDatabase) do totalCount = totalCount + 1 end
     end
     if echoesCountLabel then
-        echoesCountLabel:SetText(totalCount .. " echoes discovered" .. (#entries ~= totalCount and (" (" .. #entries .. " shown)") or ""))
+        echoesCountLabel:SetText(totalCount .. " echoes available" .. (#entries ~= totalCount and (" (" .. #entries .. " shown)") or ""))
     end
 
     local nameColW, qualColW, extraColW = CalcColWidths(contentWidth)
@@ -2673,7 +2570,7 @@ function EasyEcho_UI.UpdateEchoListUI()
         row.qualText:SetWidth(qualColW)
         row.extraText:SetWidth(extraColW)
         row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-        row.nameText:SetText("|cff888888No echoes discovered yet.|r")
+        row.nameText:SetText("|cff888888No echoes found.|r")
         row.qualText:SetText("")
         row.extraText:SetText("")
         row.echoData = nil

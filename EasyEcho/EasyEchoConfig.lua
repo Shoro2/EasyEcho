@@ -26,12 +26,13 @@ local function PopulateKnownSpells()
             end
         end
     end
-    -- Also include all echoes discovered in the DB
-    if EasyEchoEchoDB then
-        for _, data in pairs(EasyEchoEchoDB) do
-            if type(data) == "table" and data.name and not seen[data.name] then
-                table.insert(knownSpells, data.name)
-                seen[data.name] = true
+    -- Include all echoes from the PerkDatabase API
+    if ProjectEbonhold and ProjectEbonhold.PerkDatabase then
+        for spellId, _ in pairs(ProjectEbonhold.PerkDatabase) do
+            local spellName = GetSpellInfo(spellId)
+            if spellName and not seen[spellName] then
+                table.insert(knownSpells, spellName)
+                seen[spellName] = true
             end
         end
     end
@@ -184,22 +185,22 @@ function EasyEcho_Config.Refresh()
                 if row.prioEdit then row.prioEdit:Hide() end
                 row.name:SetText(sName)
 
-                -- Look up icon and tooltip from EchoDB
-                local dbKey = string.lower(sName)
-                local dbEntry = EasyEchoEchoDB and EasyEchoEchoDB[dbKey]
-                if dbEntry and dbEntry.icon and dbEntry.icon ~= "" then
-                    row.icon:SetTexture(dbEntry.icon)
-                elseif dbEntry and dbEntry.spellId then
-                    local _, _, spIcon = GetSpellInfo(dbEntry.spellId)
-                    row.icon:SetTexture(spIcon or "Interface\\Icons\\INV_Misc_QuestionMark")
-                else
-                    row.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-                end
-                -- Use quality-specific tooltip, fall back to legacy tooltip
+                -- Look up icon from PerkDatabase via GetSpellInfo
+                local perkIcon = "Interface\\Icons\\INV_Misc_QuestionMark"
                 local tooltipDesc = ""
-                if dbEntry then
-                    tooltipDesc = (dbEntry.tooltips and dbEntry.tooltips[sQual]) or dbEntry.tooltip or ""
+                if ProjectEbonhold and ProjectEbonhold.PerkDatabase then
+                    -- Find matching perk by name (any quality)
+                    local searchLower = string.lower(sName)
+                    for perkSpellId, perkData in pairs(ProjectEbonhold.PerkDatabase) do
+                        local perkName = GetSpellInfo(perkSpellId)
+                        if perkName and string.lower(perkName) == searchLower then
+                            local _, _, spIcon = GetSpellInfo(perkSpellId)
+                            if spIcon then perkIcon = spIcon end
+                            break
+                        end
+                    end
                 end
+                row.icon:SetTexture(perkIcon)
                 local tooltipStatus
                 if currentView == "Ban" then
                     tooltipStatus = "|cffff0000Banned|r (triggers reroll if all choices banned)"
