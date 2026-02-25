@@ -50,7 +50,7 @@ local function CheckPriority(choices)
     local bestRank, bestName, bestQual, bestIdx = 99999, nil, nil, nil
     for i, choice in ipairs(choices) do
         local name = GetSpellInfo(choice.spellId)
-        if name and not EasyEcho.IsBanned(name) then
+        if name and not EasyEcho.IsBanned(name) and not EasyEcho.IsBanished(name) then
             if not (EasyEcho.ONE_TIME_MAP[string.lower(name)] and EasyEcho.PlayerAlreadyHasPerk(name)) then
                 local rank = GetExactPriorityRank(name, choice.quality)
                 if rank < bestRank then
@@ -232,18 +232,18 @@ local function ProcessChoices()
         if HandleReroll(pickLevel, "No priority match") then return end
     end
 
-    -- 6) Final fallback: left-most non-banned, non-duplicate-one-time choice
+    -- 6) Final fallback: left-most non-banned, non-banished, non-duplicate-one-time choice
     local fallbackIdx = nil
     for i, choice in ipairs(choices) do
         local fname = GetSpellInfo(choice.spellId)
-        if fname and not EasyEcho.IsBanned(fname) then
+        if fname and not EasyEcho.IsBanned(fname) and not EasyEcho.IsBanished(fname) then
             if not (EasyEcho.ONE_TIME_MAP[string.lower(fname)] and EasyEcho.PlayerAlreadyHasPerk(fname)) then
                 fallbackIdx = i
                 break
             end
         end
     end
-    -- If everything is banned/skipped, pick first non-banned at least
+    -- If everything is banned/banished/skipped, allow banished (but not banned) as last resort
     if not fallbackIdx then
         for i, choice in ipairs(choices) do
             local fname = GetSpellInfo(choice.spellId)
@@ -253,7 +253,7 @@ local function ProcessChoices()
             end
         end
     end
-    -- If everything is banned (shouldn't reach here due to step 2, but safety net)
+    -- If everything is banned (shouldn't reach here due to step 4, but safety net)
     if not fallbackIdx then fallbackIdx = 1 end
     local finalName = GetSpellInfo(choices[fallbackIdx].spellId)
     if DEFAULT_CHAT_FRAME then
