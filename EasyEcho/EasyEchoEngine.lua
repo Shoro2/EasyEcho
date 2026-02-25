@@ -154,7 +154,15 @@ local function ProcessChoices()
 
     local remainingBanishes = EasyEcho.GetRemainingBanishes()
 
-    -- 1) While banishes available: banish commons first so all choices become uncommon+
+    -- 1) Priority match first: if an echo from the priority list is available, select it
+    --    immediately without wasting any banish tokens
+    local mSpell, mQual, mIdx = CheckPriority(choices)
+    if mSpell then
+        SelectSpell(mIdx, mSpell, mQual, pickLevel, true)
+        return
+    end
+
+    -- 2) No priority match: banish commons so all choices become uncommon+
     --    but skip commons that are on the priority list (they should be selectable)
     if remainingBanishes > 0 then
         for i, choice in ipairs(choices) do
@@ -177,13 +185,6 @@ local function ProcessChoices()
                 end
             end
         end
-    end
-
-    -- 2) Priority match (if banishes were available, all choices are now uncommon+)
-    local mSpell, mQual, mIdx = CheckPriority(choices)
-    if mSpell then
-        SelectSpell(mIdx, mSpell, mQual, pickLevel, true)
-        return
     end
 
     -- 3) Auto-banish: replace individual choices from banish list using banish tokens
@@ -227,7 +228,7 @@ local function ProcessChoices()
         return
     end
 
-    -- 5) No priority match -> reroll only if no banishes left
+    -- 5) No priority match -> reroll only if all banishes gone and level >= 11
     if remainingBanishes <= 0 then
         if HandleReroll(pickLevel, "No priority match") then return end
     end
