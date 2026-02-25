@@ -155,19 +155,25 @@ local function ProcessChoices()
     local remainingBanishes = EasyEcho.GetRemainingBanishes()
 
     -- 1) While banishes available: banish commons first so all choices become uncommon+
+    --    but skip commons that are on the priority list (they should be selectable)
     if remainingBanishes > 0 then
         for i, choice in ipairs(choices) do
             local name = GetSpellInfo(choice.spellId)
             if name and (choice.quality or 0) == 0 then
-                if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
-                    ProjectEbonhold.PerkService.BanishPerk(i - 1)
-                    if DEFAULT_CHAT_FRAME then
-                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing common: " .. name)
+                -- Don't banish commons that the user has on their priority list
+                if GetExactPriorityRank(name, choice.quality) >= 99999 then
+                    if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
+                        ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing common: " .. name)
+                        end
+                        EasyEcho.WriteToLog(string.format("ACTION [#%d]: BANISH -> %s (common quality, %d remaining)", pickLevel, name, remainingBanishes - 1))
+                        S.pickerFrame.state = "WAIT_FOR_BANISH"
+                        S.pickerFrame.timer = 0
+                        return
                     end
-                    EasyEcho.WriteToLog(string.format("ACTION [#%d]: BANISH -> %s (common quality, %d remaining)", pickLevel, name, remainingBanishes - 1))
-                    S.pickerFrame.state = "WAIT_FOR_BANISH"
-                    S.pickerFrame.timer = 0
-                    return
+                else
+                    EasyEcho.WriteToLog(string.format("SKIP BANISH [#%d]: %s is common but on priority list, keeping", pickLevel, name))
                 end
             end
         end
