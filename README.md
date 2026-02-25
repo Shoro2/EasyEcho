@@ -206,28 +206,28 @@ Close the popup to browse the list.
 
 ### Echo Database (within Granted Echoes / standalone view)
 
-The **Echo Database** is a persistent catalog of **every echo ever seen** by your character across all runs. It survives between sessions via `EasyEchoEchoDB`.
+The **Echo Database** is a complete catalog of **all available echoes** provided by the `ProjectEbonhold.PerkDatabase` API. It includes all perk metadata (quality, class restrictions, max stack, tome requirements) without needing to discover them during gameplay.
 
-**Header:** Shows total number of discovered echoes (e.g., *"Echo Database — 143 Echoes"*).
+**Header:** Shows total number of available echoes (e.g., *"300 echoes available"*).
 
 **Columns:**
 
 | Column | Description |
 |--------|-------------|
-| Name | Echo name |
-| Quality | All observed qualities for this echo (may show multiple) |
-| Classes | Which classes can receive this echo |
-| First Seen | Date this echo was first observed |
-| Last Seen | Most recent date this echo appeared |
+| Name | Echo name (colored by quality) |
+| Quality | Quality tier (Common, Uncommon, Rare, Epic) |
+| Classes | Which classes can receive this echo (from classMask) |
 
 **Sort modes:**
 - **By Rarity** (default) — Epic first, then Rare, Uncommon, Common
 - **Alphabetical** — A → Z by name
-- **By Class** — grouped by applicable class
+- **Max Stack** — highest stackable echoes first
+- **Prio List** — priority list rank order
 
 **Search / Filter:**
-- Type in the search box to filter by name
-- Autocomplete suggestions pull from the echo database as you type
+- Type in the search box to filter by name or comment
+- Class filter dropdown to show only echoes available to a specific class
+- Autocomplete suggestions in config pull from the PerkDatabase
 
 ---
 
@@ -417,7 +417,7 @@ Defined in `EasyEcho.toc`:
 | `EasyEchoLogDB` | Timestamped debug/decision log (capped at ~2000 entries) |
 | `EasyEchoHistoryDB` | History entries: OPTIONS, SELECT, REROLL with full metadata |
 | `EasyEchoSettings` | Profiles, active profile, priority/ban lists, tracked spells, UI state, pick counter |
-| `EasyEchoEchoDB` | Persistent echo catalog — name, tooltip, qualities, first/last seen, classes |
+| ~~`EasyEchoEchoDB`~~ | *Removed:* Echo catalog now provided by `ProjectEbonhold.PerkDatabase` API |
 
 ---
 

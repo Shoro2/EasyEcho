@@ -1,5 +1,5 @@
 ## Interface: 30300
 ## Title: EasyEcho DB
-## Notes: Persistent database storage for EasyEcho (Echo catalog & log)
+## Notes: Persistent log storage for EasyEcho
 ## Dependencies: EasyEcho
-## SavedVariables: EasyEchoEchoDB, EasyEchoLogDB
+## SavedVariables: EasyEchoLogDB
