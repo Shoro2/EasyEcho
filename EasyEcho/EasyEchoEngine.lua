@@ -7,7 +7,6 @@ EasyEcho.Engine = EasyEcho.Engine or {}
 
 local C = EasyEcho.Constants
 local S = EasyEcho.State
-local QUALITY_NAMES = EasyEcho.QUALITY_NAMES
 
 local function SetAutoStopped(stopped, reason)
     S.isAutoStopped = stopped and true or false
@@ -36,23 +35,13 @@ function EasyEcho.Engine.CheckAutoStopAtMaxLevel()
     return false
 end
 
-local function GetExactPriorityRank(name, quality)
-    local specKey = string.lower(name .. "::" .. (QUALITY_NAMES[quality] or "Common"))
-    local anyKey  = string.lower(name .. "::Any")
-    for i, listKey in ipairs(EasyEcho_PrioList) do
-        local lowKey = string.lower(listKey)
-        if lowKey == specKey or lowKey == anyKey then return i end
-    end
-    return 99999
-end
-
 local function CheckPriority(choices)
     local bestRank, bestName, bestQual, bestIdx = 99999, nil, nil, nil
     for i, choice in ipairs(choices) do
         local name = GetSpellInfo(choice.spellId)
         if name and not EasyEcho.IsBanned(name) and not EasyEcho.IsBanished(name) then
             if not (EasyEcho.ONE_TIME_MAP[string.lower(name)] and EasyEcho.PlayerAlreadyHasPerk(name)) then
-                local rank = GetExactPriorityRank(name, choice.quality)
+                local rank = EasyEcho.GetPriorityRank(name, choice.quality)
                 if rank < bestRank then
                     bestRank, bestName, bestQual, bestIdx = rank, name, choice.quality, i
                 end
@@ -169,7 +158,7 @@ local function ProcessChoices()
             local name = GetSpellInfo(choice.spellId)
             if name and (choice.quality or 0) == 0 then
                 -- Don't banish commons that the user has on their priority list
-                if GetExactPriorityRank(name, choice.quality) >= 99999 then
+                if EasyEcho.GetPriorityRank(name, choice.quality) >= 99999 then
                     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
                         ProjectEbonhold.PerkService.BanishPerk(i - 1)
                         if DEFAULT_CHAT_FRAME then

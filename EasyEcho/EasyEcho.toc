@@ -2,6 +2,7 @@
 ## Title: EasyEcho
 ## SavedVariables: EasyEchoHistoryDB, EasyEchoSettings
 
+EasyEchoUtils.lua
 EasyEchoUI.lua
 EasyEchoConfig.lua
 EasyEchoCore.lua

@@ -56,9 +56,8 @@ local function UpdateSuggestions(editBox)
     if not suggestionFrame then return end
     if text == "" or #text < 2 then suggestionFrame:Hide() return end
     local matches = {}
-    local textLower = string.lower(text)
     for _, name in ipairs(knownSpells) do
-        if string.lower(name):find(textLower, 1, true) then table.insert(matches, name) end
+        if EasyEcho.CaseFind(name, text) then table.insert(matches, name) end
         if #matches >= 5 then break end
     end
     if #matches > 0 then
@@ -95,10 +94,9 @@ function EasyEcho_Config.Refresh()
     end
 
     local displayCount = 0
-    local searchLower = string.lower(searchText)
 
     for i, entry in ipairs(list) do
-        if searchText == "" or string.lower(entry):find(searchLower, 1, true) then
+        if searchText == "" or EasyEcho.CaseFind(entry, searchText) then
             displayCount = displayCount + 1
             local row = rows[displayCount]
             if not row then
@@ -451,8 +449,7 @@ local function CreateIOFrame()
             target = EasyEchoSettings.BanList
             listName = "Ban List"
         elseif currentView == "Banish" then
-            if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
-            target = EasyEchoSettings.BanishList
+            target = EasyEcho.EnsureBanishList()
             listName = "Banish List"
         else
             target = EasyEchoSettings.PriorityList
@@ -604,8 +601,7 @@ function EasyEcho_Config.CreateFrame()
             elseif currentView == "Ban" then
                 table.insert(EasyEchoSettings.BanList, clean)
             elseif currentView == "Banish" then
-                if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
-                table.insert(EasyEchoSettings.BanishList, clean)
+                table.insert(EasyEcho.EnsureBanishList(), clean)
             end
         end
         addName:SetText("") EasyEcho_Config.Refresh()

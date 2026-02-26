@@ -97,8 +97,7 @@ EasyEcho_PrioList = EasyEcho_PrioList or {}
 -- Running flag (UI uses this)
 EasyEcho_IsRunning = false
 
--- Quality names as used by ProjectEbonhold
-EasyEcho.QUALITY_NAMES = {[0] = "Common", [1] = "Uncommon", [2] = "Rare", [3] = "Epic"}
+-- Quality names: defined in EasyEchoUtils.lua (single source of truth)
 
 -- One-time perk map (lowercase spell name -> true)
 EasyEcho.ONE_TIME_MAP = EasyEcho.ONE_TIME_MAP or {}
@@ -154,10 +153,7 @@ function EasyEcho.InitializeSettings()
         end
     end
 
-    EasyEchoSettings.PriorityList = EasyEchoSettings.Profiles[prof].PriorityList
-    EasyEchoSettings.BanList      = EasyEchoSettings.Profiles[prof].BanList or {}
-    EasyEchoSettings.BanishList   = EasyEchoSettings.Profiles[prof].BanishList or {}
-    EasyEcho_PrioList             = EasyEchoSettings.PriorityList
+    EasyEcho.ApplyProfileLists(prof)
 
     -- General settings defaults
     if EasyEchoSettings.TickSpeed == nil then EasyEchoSettings.TickSpeed = 0.5 end
@@ -175,10 +171,7 @@ function EasyEcho_SwitchProfile(profileName, silent)
     if not EasyEchoSettings or not EasyEchoSettings.Profiles then return end
     if EasyEchoSettings.Profiles[profileName] then
         EasyEchoSettings.ActiveProfile = profileName
-        EasyEchoSettings.PriorityList  = EasyEchoSettings.Profiles[profileName].PriorityList
-        EasyEchoSettings.BanList       = EasyEchoSettings.Profiles[profileName].BanList
-        EasyEchoSettings.BanishList    = EasyEchoSettings.Profiles[profileName].BanishList or {}
-        EasyEcho_PrioList              = EasyEchoSettings.PriorityList
+        EasyEcho.ApplyProfileLists(profileName)
 
         -- Save this profile as the character's preferred profile
         if not EasyEchoSettings.CharacterProfiles then EasyEchoSettings.CharacterProfiles = {} end

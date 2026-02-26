@@ -224,21 +224,9 @@ function EasyEcho_UI.ToggleLastUI()
 end
 
 
-local QUALITY_NAMES = {
-    [0] = "Common",
-    [1] = "Uncommon",
-    [2] = "Rare",
-    [3] = "Epic",
-    [4] = "Legendary"
-}
-
-local QUALITY_COLORS = {
-    [0] = "ffffffff",
-    [1] = "ff1eff00",
-    [2] = "ff0070dd",
-    [3] = "ffa335ee",
-    [4] = "ffff8000"
-}
+-- Quality tables: local aliases to shared definitions in EasyEchoUtils.lua
+local QUALITY_NAMES  = EasyEcho.QUALITY_NAMES
+local QUALITY_COLORS = EasyEcho.QUALITY_COLORS
 
 -- =========================================================
 -- ECHO DATABASE - powered by ProjectEbonhold.PerkDatabase API
@@ -333,11 +321,6 @@ local function FindPerkByNameAndQuality(name, quality)
         end
     end
     return nil
-end
-
--- No-op: recording is no longer needed since PerkDatabase provides all data
-function EasyEcho_RecordEcho(spellId, quality)
-    -- Intentionally empty: echo catalog now comes from ProjectEbonhold.PerkDatabase
 end
 
 local function GetTrackedSpellNames()
@@ -502,37 +485,22 @@ local function EvaluateTooltipFormulas(text)
     end)
 end
 
-local function GetPrioRank(name, quality)
-    if not name or not EasyEchoSettings or not EasyEchoSettings.PriorityList then return 99999 end
-    local specKey = string.lower(name .. "::" .. (QUALITY_NAMES[quality] or "Common"))
-    local anyKey = string.lower(name .. "::Any")
-
-    for i, listKey in ipairs(EasyEchoSettings.PriorityList) do
-        local low = string.lower(listKey)
-        if low == specKey or low == anyKey then
-            return i
-        end
-    end
-
-    return 99999
-end
-
 -- Returns one entry per perk from PerkDatabase (flat list)
 local function GetEchoDBSorted()
     if not ProjectEbonhold or not ProjectEbonhold.PerkDatabase then return {} end
 
     local entries = {}
-    local searchLower = string.lower(echoesSearchText or "")
+    local searchText = echoesSearchText or ""
 
     for spellId, data in pairs(ProjectEbonhold.PerkDatabase) do
         local spellName, _, spellIcon = GetSpellInfo(spellId)
         if spellName then
             -- Search filter: match name or comment
             local matchesSearch = true
-            if searchLower ~= "" then
-                matchesSearch = string.lower(spellName):find(searchLower, 1, true) ~= nil
+            if searchText ~= "" then
+                matchesSearch = EasyEcho.CaseFind(spellName, searchText)
                 if not matchesSearch and data.comment then
-                    matchesSearch = string.lower(data.comment):find(searchLower, 1, true) ~= nil
+                    matchesSearch = EasyEcho.CaseFind(data.comment, searchText)
                 end
             end
 
@@ -551,41 +519,13 @@ local function GetEchoDBSorted()
                     maxStack = data.maxStack or 1,
                     requiredSpell = data.requiredSpell or 0,
                     comment = data.comment or "",
-                    prioRank = GetPrioRank(spellName, data.quality)
+                    prioRank = EasyEcho.GetPriorityRank(spellName, data.quality)
                 })
             end
         end
     end
 
-    table.sort(entries, function(a, b)
-        if echoesSortMode == "name" then
-            if string.lower(a.name) ~= string.lower(b.name) then
-                return string.lower(a.name) < string.lower(b.name)
-            end
-            return a.quality > b.quality
-        elseif echoesSortMode == "maxstack" then
-            if a.maxStack ~= b.maxStack then
-                return a.maxStack > b.maxStack
-            end
-            if a.quality ~= b.quality then
-                return a.quality > b.quality
-            end
-            return string.lower(a.name) < string.lower(b.name)
-        elseif echoesSortMode == "prio" then
-            if a.prioRank ~= b.prioRank then
-                return a.prioRank < b.prioRank
-            end
-            if a.quality ~= b.quality then
-                return a.quality > b.quality
-            end
-            return string.lower(a.name) < string.lower(b.name)
-        else -- rarity (default)
-            if a.quality ~= b.quality then
-                return a.quality > b.quality
-            end
-            return string.lower(a.name) < string.lower(b.name)
-        end
-    end)
+    EasyEcho.SortEchoes(entries, echoesSortMode)
 
     return entries
 end
@@ -638,7 +578,7 @@ local function GetGrantedEchoesSorted()
                 icon = spellIcon or "",
                 maxStack = perkData and perkData.maxStack or 1,
                 count = 0,
-                prioRank = GetPrioRank(name, quality)
+                prioRank = EasyEcho.GetPriorityRank(name, quality)
             }
             table.insert(groupedOrder, grouped[key])
         end
@@ -671,16 +611,15 @@ local function GetGrantedEchoesSorted()
     end
 
     local filtered = {}
-    local searchLower = string.lower(grantedSearchText or "")
+    local searchText = grantedSearchText or ""
     for _, entry in ipairs(groupedOrder) do
         local matchesSearch = true
-        if searchLower ~= "" then
-            matchesSearch = string.lower(entry.name):find(searchLower, 1, true) ~= nil
-            -- Also search PerkDatabase comment for this spell
+        if searchText ~= "" then
+            matchesSearch = EasyEcho.CaseFind(entry.name, searchText)
             if not matchesSearch and entry.spellId then
                 local perkData = GetPerkDBEntry(entry.spellId)
                 if perkData and perkData.comment then
-                    matchesSearch = string.lower(perkData.comment):find(searchLower, 1, true) ~= nil
+                    matchesSearch = EasyEcho.CaseFind(perkData.comment, searchText)
                 end
             end
         end
@@ -689,25 +628,7 @@ local function GetGrantedEchoesSorted()
         end
     end
 
-    table.sort(filtered, function(a, b)
-        if grantedSortMode == "name" then
-            if string.lower(a.name) ~= string.lower(b.name) then
-                return string.lower(a.name) < string.lower(b.name)
-            end
-            return a.quality > b.quality
-        elseif grantedSortMode == "count" then
-            if a.count ~= b.count then return a.count > b.count end
-            if a.quality ~= b.quality then return a.quality > b.quality end
-            return string.lower(a.name) < string.lower(b.name)
-        elseif grantedSortMode == "prio" then
-            if a.prioRank ~= b.prioRank then return a.prioRank < b.prioRank end
-            if a.quality ~= b.quality then return a.quality > b.quality end
-            return string.lower(a.name) < string.lower(b.name)
-        else -- rarity
-            if a.quality ~= b.quality then return a.quality > b.quality end
-            return string.lower(a.name) < string.lower(b.name)
-        end
-    end)
+    EasyEcho.SortEchoes(filtered, grantedSortMode)
 
     return filtered
 end
@@ -730,6 +651,105 @@ local function CalcColWidths(contentWidth)
     local qualW = math.floor(available * 0.20)
     local extraW = available - nameW - qualW
     return nameW, qualW, extraW
+end
+
+-- Shared right-click context menu for echo rows (used by DB view + History view)
+local function ShowEchoContextMenu(data)
+    local qName = QUALITY_NAMES[data.quality] or "Common"
+
+    if not EasyEcho_UI._contextMenu then
+        EasyEcho_UI._contextMenu = CreateFrame("Frame", "EasyEchoDBContextMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+
+    UIDropDownMenu_Initialize(EasyEcho_UI._contextMenu, function(self, level)
+        -- Add to Priority List (specific quality)
+        local info1 = UIDropDownMenu_CreateInfo()
+        info1.text = "Add to Priority List (" .. qName .. ")"
+        info1.notCheckable = true
+        info1.func = function()
+            if EasyEchoSettings and EasyEchoSettings.PriorityList then
+                local newEntry = data.name .. "::" .. qName
+                table.insert(EasyEchoSettings.PriorityList, newEntry)
+                if DEFAULT_CHAT_FRAME then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
+                end
+            end
+        end
+        UIDropDownMenu_AddButton(info1, level)
+
+        -- Add to Priority List (Any)
+        local info1a = UIDropDownMenu_CreateInfo()
+        info1a.text = "Add to Priority List (Any)"
+        info1a.notCheckable = true
+        info1a.func = function()
+            if EasyEchoSettings and EasyEchoSettings.PriorityList then
+                local newEntry = data.name .. "::Any"
+                table.insert(EasyEchoSettings.PriorityList, newEntry)
+                if DEFAULT_CHAT_FRAME then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
+                end
+            end
+        end
+        UIDropDownMenu_AddButton(info1a, level)
+
+        -- Add to Ban List
+        local info2 = UIDropDownMenu_CreateInfo()
+        info2.text = "Add to Ban List"
+        info2.notCheckable = true
+        info2.func = function()
+            if EasyEchoSettings and EasyEchoSettings.BanList then
+                local already = false
+                for _, b in ipairs(EasyEchoSettings.BanList) do
+                    if string.lower(b) == string.lower(data.name) then already = true; break end
+                end
+                if not already then
+                    table.insert(EasyEchoSettings.BanList, data.name)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Ban List.")
+                    end
+                else
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Ban List.")
+                    end
+                end
+            end
+        end
+        UIDropDownMenu_AddButton(info2, level)
+
+        -- Add to Banish List
+        local info2b = UIDropDownMenu_CreateInfo()
+        info2b.text = "Add to Banish List"
+        info2b.notCheckable = true
+        info2b.func = function()
+            if EasyEchoSettings then
+                EasyEcho.EnsureBanishList()
+                local already = false
+                for _, b in ipairs(EasyEchoSettings.BanishList) do
+                    if string.lower(b) == string.lower(data.name) then already = true; break end
+                end
+                if not already then
+                    table.insert(EasyEchoSettings.BanishList, data.name)
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Banish List.")
+                    end
+                else
+                    if DEFAULT_CHAT_FRAME then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Banish List.")
+                    end
+                end
+            end
+        end
+        UIDropDownMenu_AddButton(info2b, level)
+
+        -- Cancel
+        local info3 = UIDropDownMenu_CreateInfo()
+        info3.text = "Cancel"
+        info3.notCheckable = true
+        info3.func = function() end
+        UIDropDownMenu_AddButton(info3, level)
+    end, "MENU")
+
+    ToggleDropDownMenu(1, nil, EasyEcho_UI._contextMenu, "cursor", 0, 0)
 end
 
 local function CreateRowFrame(parent, pool, index)
@@ -832,104 +852,7 @@ local function CreateRowFrame(parent, pool, index)
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     row:SetScript("OnClick", function(self, button)
         if button ~= "RightButton" or not self.echoData then return end
-        local data = self.echoData
-        local qName = QUALITY_NAMES[data.quality] or "Common"
-
-        -- Create or reuse dropdown menu
-        if not EasyEcho_UI._contextMenu then
-            EasyEcho_UI._contextMenu = CreateFrame("Frame", "EasyEchoDBContextMenu", UIParent, "UIDropDownMenuTemplate")
-        end
-
-        UIDropDownMenu_Initialize(EasyEcho_UI._contextMenu, function(self, level)
-            -- Add to Priority List
-            local info1 = UIDropDownMenu_CreateInfo()
-            info1.text = "Add to Priority List (" .. qName .. ")"
-            info1.notCheckable = true
-            info1.func = function()
-                if EasyEchoSettings and EasyEchoSettings.PriorityList then
-                    local newEntry = data.name .. "::" .. qName
-                    table.insert(EasyEchoSettings.PriorityList, newEntry)
-                    if DEFAULT_CHAT_FRAME then
-                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info1, level)
-
-            -- Add to Priority List (Any)
-            local info1a = UIDropDownMenu_CreateInfo()
-            info1a.text = "Add to Priority List (Any)"
-            info1a.notCheckable = true
-            info1a.func = function()
-                if EasyEchoSettings and EasyEchoSettings.PriorityList then
-                    local newEntry = data.name .. "::Any"
-                    table.insert(EasyEchoSettings.PriorityList, newEntry)
-                    if DEFAULT_CHAT_FRAME then
-                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info1a, level)
-
-            -- Add to Ban List
-            local info2 = UIDropDownMenu_CreateInfo()
-            info2.text = "Add to Ban List"
-            info2.notCheckable = true
-            info2.func = function()
-                if EasyEchoSettings and EasyEchoSettings.BanList then
-                    -- Check for duplicates
-                    local already = false
-                    for _, b in ipairs(EasyEchoSettings.BanList) do
-                        if string.lower(b) == string.lower(data.name) then already = true; break end
-                    end
-                    if not already then
-                        table.insert(EasyEchoSettings.BanList, data.name)
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Ban List.")
-                        end
-                    else
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Ban List.")
-                        end
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info2, level)
-
-            -- Add to Banish List
-            local info2b = UIDropDownMenu_CreateInfo()
-            info2b.text = "Add to Banish List"
-            info2b.notCheckable = true
-            info2b.func = function()
-                if EasyEchoSettings then
-                    if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
-                    local already = false
-                    for _, b in ipairs(EasyEchoSettings.BanishList) do
-                        if string.lower(b) == string.lower(data.name) then already = true; break end
-                    end
-                    if not already then
-                        table.insert(EasyEchoSettings.BanishList, data.name)
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Banish List.")
-                        end
-                    else
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Banish List.")
-                        end
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info2b, level)
-
-            -- Cancel
-            local info3 = UIDropDownMenu_CreateInfo()
-            info3.text = "Cancel"
-            info3.notCheckable = true
-            info3.func = function() end
-            UIDropDownMenu_AddButton(info3, level)
-        end, "MENU")
-
-        ToggleDropDownMenu(1, nil, EasyEcho_UI._contextMenu, "cursor", 0, 0)
+        ShowEchoContextMenu(self.echoData)
     end)
 
     pool[index] = row
@@ -1878,102 +1801,7 @@ local function CreateHistoryRowFrame(parent, pool, index)
     row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     row:SetScript("OnClick", function(self, button)
         if button ~= "RightButton" or not self.echoData then return end
-        local data = self.echoData
-        local qName = QUALITY_NAMES[data.quality] or "Common"
-
-        if not EasyEcho_UI._contextMenu then
-            EasyEcho_UI._contextMenu = CreateFrame("Frame", "EasyEchoDBContextMenu", UIParent, "UIDropDownMenuTemplate")
-        end
-
-        UIDropDownMenu_Initialize(EasyEcho_UI._contextMenu, function(self, level)
-            -- Add to Priority List (specific quality)
-            local info1 = UIDropDownMenu_CreateInfo()
-            info1.text = "Add to Priority List (" .. qName .. ")"
-            info1.notCheckable = true
-            info1.func = function()
-                if EasyEchoSettings and EasyEchoSettings.PriorityList then
-                    local newEntry = data.name .. "::" .. qName
-                    table.insert(EasyEchoSettings.PriorityList, newEntry)
-                    if DEFAULT_CHAT_FRAME then
-                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info1, level)
-
-            -- Add to Priority List (Any)
-            local info1a = UIDropDownMenu_CreateInfo()
-            info1a.text = "Add to Priority List (Any)"
-            info1a.notCheckable = true
-            info1a.func = function()
-                if EasyEchoSettings and EasyEchoSettings.PriorityList then
-                    local newEntry = data.name .. "::Any"
-                    table.insert(EasyEchoSettings.PriorityList, newEntry)
-                    if DEFAULT_CHAT_FRAME then
-                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. newEntry .. "' to Priority List.")
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info1a, level)
-
-            -- Add to Ban List
-            local info2 = UIDropDownMenu_CreateInfo()
-            info2.text = "Add to Ban List"
-            info2.notCheckable = true
-            info2.func = function()
-                if EasyEchoSettings and EasyEchoSettings.BanList then
-                    local already = false
-                    for _, b in ipairs(EasyEchoSettings.BanList) do
-                        if string.lower(b) == string.lower(data.name) then already = true; break end
-                    end
-                    if not already then
-                        table.insert(EasyEchoSettings.BanList, data.name)
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Ban List.")
-                        end
-                    else
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Ban List.")
-                        end
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info2, level)
-
-            -- Add to Banish List
-            local info2b = UIDropDownMenu_CreateInfo()
-            info2b.text = "Add to Banish List"
-            info2b.notCheckable = true
-            info2b.func = function()
-                if EasyEchoSettings then
-                    if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
-                    local already = false
-                    for _, b in ipairs(EasyEchoSettings.BanishList) do
-                        if string.lower(b) == string.lower(data.name) then already = true; break end
-                    end
-                    if not already then
-                        table.insert(EasyEchoSettings.BanishList, data.name)
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Added '" .. data.name .. "' to Banish List.")
-                        end
-                    else
-                        if DEFAULT_CHAT_FRAME then
-                            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r '" .. data.name .. "' is already on the Banish List.")
-                        end
-                    end
-                end
-            end
-            UIDropDownMenu_AddButton(info2b, level)
-
-            -- Cancel
-            local info3 = UIDropDownMenu_CreateInfo()
-            info3.text = "Cancel"
-            info3.notCheckable = true
-            info3.func = function() end
-            UIDropDownMenu_AddButton(info3, level)
-        end, "MENU")
-
-        ToggleDropDownMenu(1, nil, EasyEcho_UI._contextMenu, "cursor", 0, 0)
+        ShowEchoContextMenu(self.echoData)
     end)
 
     pool[index] = row
@@ -2327,7 +2155,7 @@ local function CalculateStats()
             if amount < 1 then amount = 1 end
 
             if quality == 3 then
-                local isPrio = GetPrioRank(name, quality) < 99999
+                local isPrio = EasyEcho.GetPriorityRank(name, quality) < 99999
                 if isPrio then cEpicsPrio = cEpicsPrio + amount else cEpicsOther = cEpicsOther + amount end
             end
             if quality == 2 then cRares = cRares + amount end
