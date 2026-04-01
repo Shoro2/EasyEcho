@@ -176,7 +176,26 @@ function EasyEcho_Config.Refresh()
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. entry .. "' saved.")
                 end)
                 -- FIX: Enable/Disable instead of SetEnabled
-                if entry ~= "Default" then row.del:Enable() else row.del:Disable() end
+                if entry ~= "Default" and entry ~= EasyEchoSettings.ActiveProfile then
+                    row.del:Enable()
+                    row.del:SetScript("OnClick", function()
+                        EasyEchoSettings.Profiles[entry] = nil
+                        -- Clear character profile references pointing to deleted profile
+                        if EasyEchoSettings.CharacterProfiles then
+                            for charKey, profName in pairs(EasyEchoSettings.CharacterProfiles) do
+                                if profName == entry then
+                                    EasyEchoSettings.CharacterProfiles[charKey] = nil
+                                end
+                            end
+                        end
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. entry .. "' deleted.")
+                        end
+                        EasyEcho_Config.Refresh()
+                    end)
+                else
+                    row.del:Disable()
+                end
             else
                 local sName, sQual = entry:match("^(.-)::(.+)$")
                 sName, sQual = sName or entry, sQual or "Any"
