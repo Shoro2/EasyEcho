@@ -91,8 +91,22 @@ EasyEcho.DEFAULT_PRIO = {
     "Strength Training::Any"
 }
 
+-- Default family priority (used when no prio match and no reroll available)
+EasyEcho.DEFAULT_FAMILY_PRIO = {
+    "Melee DPS",
+    "Tank",
+    "Ranged DPS",
+    "Caster DPS",
+    "Healer",
+    "Survivability",
+}
+
+-- All known family names
+EasyEcho.ALL_FAMILIES = { "Melee DPS", "Ranged DPS", "Caster DPS", "Tank", "Healer", "Survivability" }
+
 -- Exposed for Config UI (kept as table reference to active profile list)
 EasyEcho_PrioList = EasyEcho_PrioList or {}
+EasyEcho_FamilyPrio = EasyEcho_FamilyPrio or {}
 
 -- Running flag (UI uses this)
 EasyEcho_IsRunning = false
@@ -148,16 +162,29 @@ function EasyEcho.InitializeSettings()
 
     local prof = EasyEchoSettings.ActiveProfile
     if not EasyEchoSettings.Profiles[prof] then
-        EasyEchoSettings.Profiles[prof] = { PriorityList = {}, BanList = {}, BanishList = {} }
+        EasyEchoSettings.Profiles[prof] = { PriorityList = {}, BanList = {}, BanishList = {}, FamilyPriority = {} }
         for _, v in ipairs(EasyEcho.DEFAULT_PRIO) do
             table.insert(EasyEchoSettings.Profiles[prof].PriorityList, v)
         end
+        for _, v in ipairs(EasyEcho.DEFAULT_FAMILY_PRIO) do
+            table.insert(EasyEchoSettings.Profiles[prof].FamilyPriority, v)
+        end
     end
 
-    EasyEchoSettings.PriorityList = EasyEchoSettings.Profiles[prof].PriorityList
-    EasyEchoSettings.BanList      = EasyEchoSettings.Profiles[prof].BanList or {}
-    EasyEchoSettings.BanishList   = EasyEchoSettings.Profiles[prof].BanishList or {}
-    EasyEcho_PrioList             = EasyEchoSettings.PriorityList
+    -- Ensure FamilyPriority exists for older profiles
+    if not EasyEchoSettings.Profiles[prof].FamilyPriority then
+        EasyEchoSettings.Profiles[prof].FamilyPriority = {}
+        for _, v in ipairs(EasyEcho.DEFAULT_FAMILY_PRIO) do
+            table.insert(EasyEchoSettings.Profiles[prof].FamilyPriority, v)
+        end
+    end
+
+    EasyEchoSettings.PriorityList  = EasyEchoSettings.Profiles[prof].PriorityList
+    EasyEchoSettings.BanList       = EasyEchoSettings.Profiles[prof].BanList or {}
+    EasyEchoSettings.BanishList    = EasyEchoSettings.Profiles[prof].BanishList or {}
+    EasyEchoSettings.FamilyPriority = EasyEchoSettings.Profiles[prof].FamilyPriority
+    EasyEcho_PrioList              = EasyEchoSettings.PriorityList
+    EasyEcho_FamilyPrio            = EasyEchoSettings.FamilyPriority
 
     -- General settings defaults
     if EasyEchoSettings.TickSpeed == nil then EasyEchoSettings.TickSpeed = 0.5 end
@@ -174,11 +201,13 @@ end
 function EasyEcho_SwitchProfile(profileName, silent)
     if not EasyEchoSettings or not EasyEchoSettings.Profiles then return end
     if EasyEchoSettings.Profiles[profileName] then
-        EasyEchoSettings.ActiveProfile = profileName
-        EasyEchoSettings.PriorityList  = EasyEchoSettings.Profiles[profileName].PriorityList
-        EasyEchoSettings.BanList       = EasyEchoSettings.Profiles[profileName].BanList
-        EasyEchoSettings.BanishList    = EasyEchoSettings.Profiles[profileName].BanishList or {}
-        EasyEcho_PrioList              = EasyEchoSettings.PriorityList
+        EasyEchoSettings.ActiveProfile  = profileName
+        EasyEchoSettings.PriorityList   = EasyEchoSettings.Profiles[profileName].PriorityList
+        EasyEchoSettings.BanList        = EasyEchoSettings.Profiles[profileName].BanList
+        EasyEchoSettings.BanishList     = EasyEchoSettings.Profiles[profileName].BanishList or {}
+        EasyEchoSettings.FamilyPriority = EasyEchoSettings.Profiles[profileName].FamilyPriority or {}
+        EasyEcho_PrioList               = EasyEchoSettings.PriorityList
+        EasyEcho_FamilyPrio             = EasyEchoSettings.FamilyPriority
 
         -- Save this profile as the character's preferred profile
         if not EasyEchoSettings.CharacterProfiles then EasyEchoSettings.CharacterProfiles = {} end

@@ -264,7 +264,42 @@ local function ProcessChoices()
         if HandleReroll(pickLevel, "No priority match") then return end
     end
 
-    -- 6) Final fallback: left-most non-banned, non-banished, non-duplicate-one-time choice
+    -- 6) Family-priority fallback: pick best echo by family priority order, preferring higher quality
+    local familyList = EasyEcho_FamilyPrio
+    if familyList and #familyList > 0 and ProjectEbonhold and ProjectEbonhold.PerkDatabase then
+        local bestFamilyRank, bestQuality, bestFamilyIdx, bestFamilyName = 99999, -1, nil, nil
+        for i, choice in ipairs(choices) do
+            local fname = GetSpellInfo(choice.spellId)
+            if fname and not EasyEcho.IsBanned(fname) and not EasyEcho.IsBanished(fname) then
+                if not (EasyEcho.ONE_TIME_MAP[string.lower(fname)] and EasyEcho.PlayerAlreadyHasPerk(fname)) then
+                    local perkData = ProjectEbonhold.PerkDatabase[choice.spellId]
+                    if perkData and perkData.families then
+                        for _, family in ipairs(perkData.families) do
+                            local rank = 99999
+                            for fi, fn in ipairs(familyList) do
+                                if string.lower(fn) == string.lower(family) then rank = fi; break end
+                            end
+                            if rank < bestFamilyRank or (rank == bestFamilyRank and (choice.quality or 0) > bestQuality) then
+                                bestFamilyRank = rank
+                                bestQuality = choice.quality or 0
+                                bestFamilyIdx = i
+                                bestFamilyName = fname
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if bestFamilyIdx then
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No prio match. Family fallback: " .. (bestFamilyName or "Unknown"))
+            end
+            SelectSpell(bestFamilyIdx, bestFamilyName, choices[bestFamilyIdx].quality, pickLevel, false)
+            return
+        end
+    end
+
+    -- 7) Final fallback: left-most non-banned, non-banished, non-duplicate-one-time choice
     local fallbackIdx = nil
     for i, choice in ipairs(choices) do
         local fname = GetSpellInfo(choice.spellId)
