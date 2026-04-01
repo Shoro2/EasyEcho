@@ -488,7 +488,7 @@ local function CreateIOFrame()
     f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.hint:SetPoint("TOPLEFT", 20, -32)
     f.hint:SetTextColor(0.7, 0.7, 0.7)
-    f.hint:SetText("Copy text to export, or paste & click Import to replace current list.")
+    f.hint:SetText("Copy text to export, or paste & click Import to replace all profile lists.")
 
     local scrollFrame = CreateFrame("ScrollFrame", "EasyEchoIOScroll", f, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 20, -48)
@@ -504,30 +504,55 @@ local function CreateIOFrame()
     save:SetScript("OnClick", function()
         local text = eb:GetText()
         if not text or text == "" then return end
-        local target, listName
-        if currentView == "Ban" then
-            target = EasyEchoSettings.BanList
-            listName = "Ban List"
-        elseif currentView == "Banish" then
-            if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
-            target = EasyEchoSettings.BanishList
-            listName = "Banish List"
-        else
-            target = EasyEchoSettings.PriorityList
-            listName = "Priority List"
+
+        -- Map section headers to their target lists
+        local sectionMap = {
+            ["[prioritylist]"]    = "PriorityList",
+            ["[banlist]"]         = "BanList",
+            ["[banishlist]"]      = "BanishList",
+            ["[familypriority]"]  = "FamilyPriority",
+        }
+
+        -- Ensure all lists exist
+        if not EasyEchoSettings.BanishList then EasyEchoSettings.BanishList = {} end
+        if not EasyEchoSettings.FamilyPriority then EasyEchoSettings.FamilyPriority = {} end
+
+        local lists = {
+            PriorityList    = EasyEchoSettings.PriorityList,
+            BanList         = EasyEchoSettings.BanList,
+            BanishList      = EasyEchoSettings.BanishList,
+            FamilyPriority  = EasyEchoSettings.FamilyPriority,
+        }
+
+        -- Clear all lists before importing
+        for _, tbl in pairs(lists) do
+            for k = #tbl, 1, -1 do tbl[k] = nil end
         end
-        -- Clear and repopulate
-        for k = #target, 1, -1 do target[k] = nil end
+
+        -- Parse sections
+        local currentTarget = nil
+        local totalEntries = 0
         for line in text:gmatch("[^\r\n]+") do
             local trimmed = line:match("^%s*(.-)%s*$")
             if trimmed and trimmed ~= "" then
-                table.insert(target, trimmed)
+                local listKey = sectionMap[string.lower(trimmed)]
+                if listKey then
+                    currentTarget = lists[listKey]
+                elseif currentTarget then
+                    table.insert(currentTarget, trimmed)
+                    totalEntries = totalEntries + 1
+                end
             end
         end
+
+        -- Also update the global reference used by the engine
+        EasyEcho_PrioList = EasyEchoSettings.PriorityList
+        EasyEcho_FamilyPrio = EasyEchoSettings.FamilyPriority
+
         EasyEcho_Config.Refresh()
         f:Hide()
         if DEFAULT_CHAT_FRAME then
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Imported " .. #target .. " entries into " .. listName .. ".")
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Imported " .. totalEntries .. " entries into profile.")
         end
     end)
 
@@ -539,18 +564,21 @@ end
 
 local function PopulateIOFrame(ioFrame)
     if not ioFrame or not ioFrame.editBox then return end
-    local source
-    if currentView == "Ban" then
-        source = EasyEchoSettings and EasyEchoSettings.BanList or {}
-        ioFrame.title:SetText("Export / Import - Ban List")
-    elseif currentView == "Banish" then
-        source = EasyEchoSettings and EasyEchoSettings.BanishList or {}
-        ioFrame.title:SetText("Export / Import - Banish List")
-    else
-        source = EasyEchoSettings and EasyEchoSettings.PriorityList or {}
-        ioFrame.title:SetText("Export / Import - Priority List")
+    ioFrame.title:SetText("Export / Import - Full Profile")
+    local sections = {
+        { header = "[PriorityList]", source = EasyEchoSettings and EasyEchoSettings.PriorityList or {} },
+        { header = "[BanList]",      source = EasyEchoSettings and EasyEchoSettings.BanList or {} },
+        { header = "[BanishList]",   source = EasyEchoSettings and EasyEchoSettings.BanishList or {} },
+        { header = "[FamilyPriority]", source = EasyEchoSettings and EasyEchoSettings.FamilyPriority or {} },
+    }
+    local parts = {}
+    for _, sec in ipairs(sections) do
+        table.insert(parts, sec.header)
+        for _, entry in ipairs(sec.source) do
+            table.insert(parts, entry)
+        end
     end
-    local text = table.concat(source, "\n")
+    local text = table.concat(parts, "\n")
     ioFrame.editBox:SetText(text)
     ioFrame.editBox:HighlightText()
     ioFrame.editBox:SetFocus()
@@ -618,7 +646,9 @@ function EasyEcho_Config.CreateFrame()
     searchLabel:SetText("Search:")
     local searchBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
     searchBox:SetSize(160, 20) searchBox:SetPoint("TOPLEFT", 72, -48)
+    searchBox:SetAutoFocus(false)
     searchBox:SetScript("OnTextChanged", function(s) searchText = s:GetText() EasyEcho_Config.Refresh() end)
+    searchBox:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
 
     local sf = CreateFrame("ScrollFrame", "EasyEchoConfigScrollFrame", f, "UIPanelScrollFrameTemplate")
     sf:SetPoint("TOPLEFT", 20, -78) sf:SetPoint("BOTTOMRIGHT", -35, 110)
