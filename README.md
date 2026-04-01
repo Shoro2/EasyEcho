@@ -275,7 +275,7 @@ Supported qualities: `Common`, `Uncommon`, `Rare`, `Epic`, `Any`
 | Control | Function |
 |---------|----------|
 | **Search** | Filter the displayed list to find specific entries |
-| **Reset to Default** | Restores the built-in default priority list (~60 entries). Prompts for confirmation. |
+| **Reset to Default** | Restores the built-in default priority list (~90 entries). Prompts for confirmation. |
 
 ---
 
@@ -393,9 +393,13 @@ Decision pipeline inside `ProcessChoices()` (`EasyEchoEngine.lua`):
    - Skips one-time perks already granted
    - Finds the highest-priority entry matching any offered perk (`Name::Quality` or `Name::Any`)
    - If match found → select it
-4. **All banned** — if every offered perk is on the ban list → attempt reroll
-5. **No priority match** — no offered perk matches the priority list → attempt reroll
-6. **Reroll unavailable** — pick the left-most non-banned option as final fallback
+4. **Auto-banish commons** — if banish tokens remain, banish common-quality choices (unless they are on the priority list)
+5. **Auto-banish from banish list** — if banish tokens remain, banish choices that appear on the user's banish list
+6. **All banned** — if every offered perk is on the ban list → banish if tokens available, otherwise attempt reroll
+7. **No priority match** — no offered perk matches the priority list → attempt reroll (only if no banish tokens remain)
+8. **Reroll unavailable** — pick the left-most non-banned option as final fallback
+
+All API calls (`SelectPerk`, `RequestReroll`, `BanishPerk`) check return values — if the server rejects a call (operation already in flight), the engine retries on the next tick.
 
 **State machine states** (picker frame `OnUpdate`):
 
@@ -403,6 +407,7 @@ Decision pipeline inside `ProcessChoices()` (`EasyEchoEngine.lua`):
 |-------|-------------|
 | `START_DELAY` | Waiting for initial render delay |
 | `PROCESSING` | Running the decision pipeline |
+| `WAIT_FOR_BANISH` | Waiting for banish replacement to arrive |
 | `WAIT_FOR_NEW_CARDS` | Detecting new offers after a reroll |
 | `LOCKED` | Waiting for server to confirm selection |
 
@@ -425,28 +430,33 @@ Defined in `EasyEcho.toc`:
 
 ```
 EasyEcho/
-├── EasyEcho_Addon/                  # Main addon (deploy this folder)
+├── EasyEcho/                        # Main addon (deploy this folder)
 │   ├── EasyEcho.toc                 # Addon manifest & load order
 │   ├── EasyEcho_Main.lua            # Event handler & initialization
 │   ├── EasyEchoCore.lua             # Constants, state, profiles, helpers
 │   ├── EasyEchoEngine.lua           # Selection engine & state machine
 │   ├── EasyEchoHooks.lua            # UI hooks for Start/Death buttons
-│   ├── EasyEchoUI.lua               # All UI frames (~2,600 lines)
-│   ├── EasyEchoConfig.lua           # Configuration UI (priority/ban/profiles)
+│   ├── EasyEchoUI.lua               # All UI frames (~2,700 lines)
+│   ├── EasyEchoConfig.lua           # Configuration UI (priority/ban/banish/profiles)
 │   └── CLAUDE.md                    # Developer notes
+│
+├── EasyEchoDB/                      # Optional logging addon (depends on EasyEcho)
+│   └── EasyEchoDB.toc               # Manifest for persistent log storage
 │
 └── ProjectEbonhold_Addon/           # Reference copy of server addon modules
     └── interface/AddOns/ProjectEbonhold/modules/
         ├── perks/
         │   ├── perks.lua            # Server perk picker frame
-        │   └── perks_service.lua    # Server API for perk communication
+        │   ├── perks_service.lua    # Server API for perk communication
+        │   ├── perks_data.lua       # PerkDatabase: ~480 echo definitions
+        │   └── perks_browser.lua    # Echo browser UI
         └── playerRun/
             ├── player_run_service.lua
             ├── player_run_ui.lua
             └── deathFrame.lua
 ```
 
-> Only the `EasyEcho_Addon/` folder needs to be copied to your WoW installation. The `ProjectEbonhold_Addon/` folder is included for reference only.
+> Only the `EasyEcho/` folder needs to be copied to your WoW installation. The `ProjectEbonhold_Addon/` folder is included for reference only.
 
 ---
 
