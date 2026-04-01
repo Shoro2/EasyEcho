@@ -141,15 +141,24 @@ function EasyEcho_Config.Refresh()
                 row:SetScript("OnEnter", function(self)
                     if not self.tooltipData then return end
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:ClearLines()
-                    GameTooltip:AddLine(self.tooltipData.name or "")
-                    if self.tooltipData.desc and self.tooltipData.desc ~= "" then
-                        GameTooltip:AddLine(self.tooltipData.desc, 1, 0.82, 0, true)
+                    if self.tooltipData.spellId then
+                        GameTooltip:SetSpellByID(self.tooltipData.spellId)
+                        if self.tooltipData.status then
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
+                        end
+                        GameTooltip:Show()
+                    else
+                        GameTooltip:ClearLines()
+                        GameTooltip:AddLine(self.tooltipData.name or "")
+                        if self.tooltipData.desc and self.tooltipData.desc ~= "" then
+                            GameTooltip:AddLine(self.tooltipData.desc, 1, 0.82, 0, true)
+                        end
+                        if self.tooltipData.status then
+                            GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
+                        end
+                        GameTooltip:Show()
                     end
-                    if self.tooltipData.status then
-                        GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
-                    end
-                    GameTooltip:Show()
                 end)
                 row:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 rows[displayCount] = row
@@ -207,6 +216,7 @@ function EasyEcho_Config.Refresh()
                 -- Look up icon from PerkDatabase via GetSpellInfo
                 local perkIcon = "Interface\\Icons\\INV_Misc_QuestionMark"
                 local tooltipDesc = ""
+                local matchedSpellId = nil
                 if ProjectEbonhold and ProjectEbonhold.PerkDatabase then
                     -- Find matching perk by name (any quality)
                     local searchLower = string.lower(sName)
@@ -215,6 +225,7 @@ function EasyEcho_Config.Refresh()
                         if perkName and string.lower(perkName) == searchLower then
                             local _, _, spIcon = GetSpellInfo(perkSpellId)
                             if spIcon then perkIcon = spIcon end
+                            matchedSpellId = perkSpellId
                             break
                         end
                     end
@@ -228,7 +239,7 @@ function EasyEcho_Config.Refresh()
                 else
                     tooltipStatus = "Priority #" .. i .. " (" .. sQual .. ")"
                 end
-                row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus }
+                row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus, spellId = matchedSpellId }
 
                 row.up:SetText("Up") row.down:SetText("Down")
                 if currentView == "Ban" then
