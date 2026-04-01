@@ -254,8 +254,13 @@ local function ProcessChoices()
             end
         end
         if HandleReroll(pickLevel, "All banned: " .. bannedNames) then return end
-        local fName = GetSpellInfo(choices[1].spellId)
-        SelectSpell(1, fName, choices[1].quality, pickLevel, false)
+        -- All choices banned, no banish tokens, no rerolls left -> skip entirely (never pick a banned echo)
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r All choices are banned and no reroll/banish available. Skipping pick.")
+        end
+        EasyEcho.WriteToLog(string.format("SKIP [#%d]: All choices banned, no reroll/banish available", pickLevel))
+        S.pickerFrame.state = "START_DELAY"
+        S.pickerFrame.timer = 0
         return
     end
 
@@ -320,8 +325,16 @@ local function ProcessChoices()
             end
         end
     end
-    -- If everything is banned (shouldn't reach here due to step 4, but safety net)
-    if not fallbackIdx then fallbackIdx = 1 end
+    -- If everything is banned -> never pick a banned echo, wait for new choices
+    if not fallbackIdx then
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r All choices are banned. Waiting for new choices.")
+        end
+        EasyEcho.WriteToLog(string.format("SKIP [#%d]: All choices banned at final fallback, waiting", pickLevel))
+        S.pickerFrame.state = "START_DELAY"
+        S.pickerFrame.timer = 0
+        return
+    end
     local finalName = GetSpellInfo(choices[fallbackIdx].spellId)
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost non-banned.")
