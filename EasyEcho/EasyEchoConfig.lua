@@ -181,6 +181,7 @@ function EasyEcho_Config.Refresh()
                     ["Tank"] = "Interface\\Icons\\Ability_Defend",
                     ["Healer"] = "Interface\\Icons\\Spell_Holy_FlashHeal",
                     ["Survivability"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
+                    ["No Family"] = "Interface\\Icons\\INV_Misc_QuestionMark",
                 }
                 row.icon:SetTexture(famIcons[entry] or "Interface\\Icons\\INV_Misc_QuestionMark")
                 row.name:SetText(entry)

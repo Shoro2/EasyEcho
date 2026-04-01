@@ -99,10 +99,11 @@ EasyEcho.DEFAULT_FAMILY_PRIO = {
     "Caster DPS",
     "Healer",
     "Survivability",
+    "No Family",
 }
 
--- All known family names
-EasyEcho.ALL_FAMILIES = { "Melee DPS", "Ranged DPS", "Caster DPS", "Tank", "Healer", "Survivability" }
+-- All known family names (including "No Family" for echoes without a family tag)
+EasyEcho.ALL_FAMILIES = { "Melee DPS", "Ranged DPS", "Caster DPS", "Tank", "Healer", "Survivability", "No Family" }
 
 -- Exposed for Config UI (kept as table reference to active profile list)
 EasyEcho_PrioList = EasyEcho_PrioList or {}

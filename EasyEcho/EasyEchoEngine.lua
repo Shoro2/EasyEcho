@@ -277,19 +277,22 @@ local function ProcessChoices()
             local fname = GetSpellInfo(choice.spellId)
             if fname and not EasyEcho.IsBanned(fname) and not EasyEcho.IsBanished(fname) then
                 if not (EasyEcho.ONE_TIME_MAP[string.lower(fname)] and EasyEcho.PlayerAlreadyHasPerk(fname)) then
-                    local perkData = ProjectEbonhold.PerkDatabase[choice.spellId]
-                    if perkData and perkData.families then
-                        for _, family in ipairs(perkData.families) do
-                            local rank = 99999
-                            for fi, fn in ipairs(familyList) do
-                                if string.lower(fn) == string.lower(family) then rank = fi; break end
-                            end
-                            if rank < bestFamilyRank or (rank == bestFamilyRank and (choice.quality or 0) > bestQuality) then
-                                bestFamilyRank = rank
-                                bestQuality = choice.quality or 0
-                                bestFamilyIdx = i
-                                bestFamilyName = fname
-                            end
+                    local perkData = ProjectEbonhold.PerkDatabase and ProjectEbonhold.PerkDatabase[choice.spellId]
+                    local families = perkData and perkData.families
+                    -- Echoes without families (or empty families table) are treated as "No Family"
+                    if not families or #families == 0 then
+                        families = { "No Family" }
+                    end
+                    for _, family in ipairs(families) do
+                        local rank = 99999
+                        for fi, fn in ipairs(familyList) do
+                            if string.lower(fn) == string.lower(family) then rank = fi; break end
+                        end
+                        if rank < bestFamilyRank or (rank == bestFamilyRank and (choice.quality or 0) > bestQuality) then
+                            bestFamilyRank = rank
+                            bestQuality = choice.quality or 0
+                            bestFamilyIdx = i
+                            bestFamilyName = fname
                         end
                     end
                 end
