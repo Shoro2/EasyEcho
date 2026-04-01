@@ -231,10 +231,28 @@ local function ProcessChoices()
         end
     end
 
-    -- 4) All banned -> banish if tokens available, otherwise reroll
-    local allBanned, bannedNames = CheckBanned(choices)
-    if allBanned then
-        if remainingBanishes > 0 then
+    -- 4) Check if all choices are unusable (banned / banished / one-time already owned)
+    local allUnusable = true
+    local allBanned = true
+    local unusableReasons = {}
+    for _, choice in ipairs(choices) do
+        local name = GetSpellInfo(choice.spellId)
+        if name then
+            local isBanned = EasyEcho.IsBanned(name)
+            local isBanished = EasyEcho.IsBanished(name)
+            local isOneTimeOwned = EasyEcho.ONE_TIME_MAP[string.lower(name)] and EasyEcho.PlayerAlreadyHasPerk(name)
+            if not isBanned then allBanned = false end
+            if not isBanned and not isBanished and not isOneTimeOwned then
+                allUnusable = false
+            else
+                table.insert(unusableReasons, name)
+            end
+        end
+    end
+
+    if allUnusable then
+        -- Try banishing a banned card if tokens available
+        if allBanned and remainingBanishes > 0 then
             local name = GetSpellInfo(choices[1].spellId)
             if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
                 local ok = ProjectEbonhold.PerkService.BanishPerk(0)
@@ -253,12 +271,14 @@ local function ProcessChoices()
                 return
             end
         end
-        if HandleReroll(pickLevel, "All banned: " .. bannedNames) then return end
-        -- All choices banned, no banish tokens, no rerolls left -> skip entirely (never pick a banned echo)
+        -- All unusable -> reroll
+        local reason = "All unusable: " .. table.concat(unusableReasons, ", ")
+        if HandleReroll(pickLevel, reason) then return end
+        -- No rerolls left -> wait (never pick a banned/banished/already-owned echo)
         if DEFAULT_CHAT_FRAME then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r All choices are banned and no reroll/banish available. Skipping pick.")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r All choices unusable and no reroll/banish available. Waiting.")
         end
-        EasyEcho.WriteToLog(string.format("SKIP [#%d]: All choices banned, no reroll/banish available", pickLevel))
+        EasyEcho.WriteToLog(string.format("SKIP [#%d]: All choices unusable, no reroll/banish available", pickLevel))
         S.pickerFrame.state = "START_DELAY"
         S.pickerFrame.timer = 0
         return
@@ -307,42 +327,30 @@ local function ProcessChoices()
         end
     end
 
-    -- 7) Final fallback: left-most non-banned, non-banished, non-duplicate-one-time choice
+    -- 7) Final fallback: left-most usable (non-banned, non-banished, non-duplicate-one-time) choice
+    --    Step 4 already ensures we only reach here if at least one choice IS usable.
     local fallbackIdx = nil
+    local fallbackName = nil
     for i, choice in ipairs(choices) do
         local fname = GetSpellInfo(choice.spellId)
         if fname and not EasyEcho.IsBanned(fname) and not EasyEcho.IsBanished(fname) then
             if not (EasyEcho.ONE_TIME_MAP[string.lower(fname)] and EasyEcho.PlayerAlreadyHasPerk(fname)) then
                 fallbackIdx = i
+                fallbackName = fname
                 break
             end
         end
     end
-    -- If everything is banned/banished/skipped, allow banished (but not banned) as last resort
     if not fallbackIdx then
-        for i, choice in ipairs(choices) do
-            local fname = GetSpellInfo(choice.spellId)
-            if fname and not EasyEcho.IsBanned(fname) then
-                fallbackIdx = i
-                break
-            end
-        end
-    end
-    -- If everything is banned -> never pick a banned echo, wait for new choices
-    if not fallbackIdx then
-        if DEFAULT_CHAT_FRAME then
-            DEFAULT_CHAT_FRAME:AddMessage("|cffffff00[EasyEcho]|r All choices are banned. Waiting for new choices.")
-        end
-        EasyEcho.WriteToLog(string.format("SKIP [#%d]: All choices banned at final fallback, waiting", pickLevel))
+        -- Shouldn't reach here (step 4 catches all-unusable), but safety net
         S.pickerFrame.state = "START_DELAY"
         S.pickerFrame.timer = 0
         return
     end
-    local finalName = GetSpellInfo(choices[fallbackIdx].spellId)
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking leftmost non-banned.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r No profile match. Picking fallback: " .. (fallbackName or "Unknown"))
     end
-    SelectSpell(fallbackIdx, finalName, choices[fallbackIdx].quality, pickLevel, false)
+    SelectSpell(fallbackIdx, fallbackName, choices[fallbackIdx].quality, pickLevel, false)
 end
 
 -- Public API used by hooks / main
