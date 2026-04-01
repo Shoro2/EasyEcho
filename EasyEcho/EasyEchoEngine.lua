@@ -101,7 +101,13 @@ local function HandleReroll(pickLevel, reason)
     S.lastLoggedPick = -1
 
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.RequestReroll then
-        ProjectEbonhold.PerkService.RequestReroll()
+        local ok = ProjectEbonhold.PerkService.RequestReroll()
+        if ok == false then
+            S.pickerFrame.state = "START_DELAY"
+            S.pickerFrame.timer = 0
+            EasyEcho.WriteToLog("REROLL blocked: reroll already in flight, retrying")
+            return true
+        end
     end
 
     S.pickerFrame.state = "WAIT_FOR_NEW_CARDS"
@@ -121,7 +127,14 @@ local function SelectSpell(idx, name, quality, pickLevel, isPrio)
     EasyEcho.LogDecision("SELECT", name or "Unknown", quality, isPrio and "Priority match" or "Fallback", 0, 0, isPrio)
 
     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.SelectPerk then
-        ProjectEbonhold.PerkService.SelectPerk(choices[idx].spellId)
+        local ok = ProjectEbonhold.PerkService.SelectPerk(choices[idx].spellId)
+        if ok == false then
+            S.isProcessing = false
+            S.pickerFrame.state = "START_DELAY"
+            S.pickerFrame.timer = 0
+            EasyEcho.WriteToLog("SELECT blocked: pick already in flight, retrying")
+            return
+        end
     end
 
     if EasyEchoSettings then
@@ -171,7 +184,13 @@ local function ProcessChoices()
                 -- Don't banish commons that the user has on their priority list
                 if GetExactPriorityRank(name, choice.quality) >= 99999 then
                     if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
-                        ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                        local ok = ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                        if ok == false then
+                            S.pickerFrame.state = "START_DELAY"
+                            S.pickerFrame.timer = 0
+                            EasyEcho.WriteToLog("BANISH blocked: banish already in flight, retrying")
+                            return
+                        end
                         if DEFAULT_CHAT_FRAME then
                             DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing common: " .. name)
                         end
@@ -193,7 +212,13 @@ local function ProcessChoices()
             local name = GetSpellInfo(choice.spellId)
             if name and EasyEcho.IsBanished(name) then
                 if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
-                    ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                    local ok = ProjectEbonhold.PerkService.BanishPerk(i - 1)
+                    if ok == false then
+                        S.pickerFrame.state = "START_DELAY"
+                        S.pickerFrame.timer = 0
+                        EasyEcho.WriteToLog("BANISH blocked: banish already in flight, retrying")
+                        return
+                    end
                     if DEFAULT_CHAT_FRAME then
                         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing: " .. name)
                     end
@@ -212,7 +237,13 @@ local function ProcessChoices()
         if remainingBanishes > 0 then
             local name = GetSpellInfo(choices[1].spellId)
             if ProjectEbonhold and ProjectEbonhold.PerkService and ProjectEbonhold.PerkService.BanishPerk then
-                ProjectEbonhold.PerkService.BanishPerk(0)
+                local ok = ProjectEbonhold.PerkService.BanishPerk(0)
+                if ok == false then
+                    S.pickerFrame.state = "START_DELAY"
+                    S.pickerFrame.timer = 0
+                    EasyEcho.WriteToLog("BANISH blocked: banish already in flight, retrying")
+                    return
+                end
                 if DEFAULT_CHAT_FRAME then
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r [#" .. pickLevel .. "] Auto-banishing banned card: " .. (name or "Unknown"))
                 end

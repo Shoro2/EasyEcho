@@ -223,7 +223,7 @@ function EasyEcho_Config.Refresh()
                 else
                     row.quality:SetText(sQual)
                     if sQual == "Epic" then row.quality:SetTextColor(0.64, 0.21, 0.93)
-                    elseif sQual == "Rare" then row.quality:SetTextColor(0, 0.44, 0.87)
+                    elseif sQual == "Rare" then row.quality:SetTextColor(0, 0.4, 1.0)
                     elseif sQual == "Uncommon" then row.quality:SetTextColor(0.12, 1, 0)
                     else row.quality:SetTextColor(1, 1, 1) end
                     row.up:Show() row.down:Show()

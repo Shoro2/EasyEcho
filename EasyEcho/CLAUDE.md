@@ -23,7 +23,7 @@ EasyEcho/
         ├── perks/
         │   ├── perks.lua            # Perk picker UI: frame rendering, animations, quality colors
         │   ├── perks_service.lua    # Perk service API: server communication, event dispatching
-        │   ├── perks_data.lua       # PerkDatabase: complete echo catalog (~300 spells with metadata)
+        │   ├── perks_data.lua       # PerkDatabase: complete echo catalog (~480 spells with metadata)
         │   └── perks_browser.lua    # Echo browser UI with search, class filter, quality filter
         ├── playerRun/
         │   ├── player_run_service.lua

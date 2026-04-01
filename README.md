@@ -208,7 +208,7 @@ Close the popup to browse the list.
 
 The **Echo Database** is a complete catalog of **all available echoes** provided by the `ProjectEbonhold.PerkDatabase` API. It includes all perk metadata (quality, class restrictions, max stack, tome requirements) without needing to discover them during gameplay.
 
-**Header:** Shows total number of available echoes (e.g., *"300 echoes available"*).
+**Header:** Shows total number of available echoes (e.g., *"480 echoes available"*).
 
 **Columns:**
 

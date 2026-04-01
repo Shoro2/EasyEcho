@@ -235,7 +235,7 @@ local QUALITY_NAMES = {
 local QUALITY_COLORS = {
     [0] = "ffffffff",
     [1] = "ff1eff00",
-    [2] = "ff0070dd",
+    [2] = "ff0066ff",
     [3] = "ffa335ee",
     [4] = "ffff8000"
 }
@@ -1464,7 +1464,7 @@ local function ShowGrantedSummary(anchorFrame)
         local DY = 22
         f.lblPrio     = AddRow(Y0,          "Prio-List Echoes: 0",   0.12, 1.0,  0.0)
         f.lblEpic     = AddRow(Y0 - DY,     "Epic Echoes: 0",          0.64, 0.21, 0.93)
-        f.lblRare     = AddRow(Y0 - DY*2,   "Rare Echoes: 0",          0.0,  0.44, 0.87)
+        f.lblRare     = AddRow(Y0 - DY*2,   "Rare Echoes: 0",          0.0,  0.4,  1.0)
         f.lblUncommon = AddRow(Y0 - DY*3,   "Uncommon Echoes: 0",      0.12, 1.0,  0.0)
         f.lblCommon   = AddRow(Y0 - DY*4,   "Common Echoes: 0",        1.0,  1.0,  1.0)
         f.lblUseless  = AddRow(Y0 - DY*5,   "Useless Echoes: 0",       0.6,  0.6,  0.6)
@@ -2187,7 +2187,7 @@ local function CreateHistoryFrame()
     local miscY = TOP_Y - (ROW_H * 2)
 
     statRares = CreateStatLabel(f, leftX, miscY, colW, "GameFontHighlight")
-    statRares:SetTextColor(0, 0.44, 0.87)
+    statRares:SetTextColor(0, 0.4, 1.0)
     statRares:SetText("Total Rares: 0")
 
     statRerollsLeft = CreateStatLabel(f, rightX, miscY, colW, "GameFontHighlight")
