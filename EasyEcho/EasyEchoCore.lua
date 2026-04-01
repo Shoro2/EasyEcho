@@ -328,9 +328,17 @@ function EasyEcho.PlayerAlreadyHasPerk(checkName)
     local granted = ProjectEbonhold.PerkService.GetGrantedPerks()
     if not granted then return false end
     local searchLower = string.lower(checkName)
-    for _, perkData in ipairs(granted) do
-        local n = GetSpellInfo(perkData.spellId)
-        if n and string.lower(n) == searchLower then return true end
+    -- grantedPerks may be a dictionary keyed by spell name (new format)
+    -- or a sequential array (old format)
+    if granted[1] then
+        for _, perkData in ipairs(granted) do
+            local n = GetSpellInfo(perkData.spellId)
+            if n and string.lower(n) == searchLower then return true end
+        end
+    else
+        for spellName, _ in pairs(granted) do
+            if type(spellName) == "string" and string.lower(spellName) == searchLower then return true end
+        end
     end
     return false
 end

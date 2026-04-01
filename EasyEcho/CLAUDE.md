@@ -10,9 +10,9 @@
 EasyEcho/
 ├── CLAUDE.md
 ├── .gitattributes
-├── EasyEcho_Addon/              # Main addon (deploy this folder)
+├── EasyEcho/              # Main addon (deploy this folder)
 │   ├── EasyEcho.toc             # WoW addon manifest (defines load order & saved variables)
-│   ├── EasyEchoUI.lua           # All UI frames: history, stats, granted echoes, echo database (~2,600 lines)
+│   ├── EasyEchoUI.lua           # All UI frames: history, stats, granted echoes, echo database (~2,700 lines)
 │   ├── EasyEchoConfig.lua       # Configuration UI: priority/ban list management, profiles, import/export
 │   ├── EasyEchoCore.lua         # Constants, shared state, profile management, helpers
 │   ├── EasyEchoEngine.lua       # Selection engine and picker frame state machine
@@ -23,7 +23,7 @@ EasyEcho/
         ├── perks/
         │   ├── perks.lua            # Perk picker UI: frame rendering, animations, quality colors
         │   ├── perks_service.lua    # Perk service API: server communication, event dispatching
-        │   ├── perks_data.lua       # PerkDatabase: complete echo catalog (~300 spells with metadata)
+        │   ├── perks_data.lua       # PerkDatabase: complete echo catalog (~480 spells with metadata)
         │   └── perks_browser.lua    # Echo browser UI with search, class filter, quality filter
         ├── playerRun/
         │   ├── player_run_service.lua
@@ -88,12 +88,17 @@ The perk selection follows this decision pipeline inside `ProcessChoices()`:
 2. **Log OPTIONS** — record offered choices in history (once per pick counter)
 3. **Priority match** (`CheckPriority()`):
    - Skips banned perks (`EasyEcho.IsBanned()`)
+   - Skips banished perks (`EasyEcho.IsBanished()`)
    - Skips one-time perks already granted (`EasyEcho.ONE_TIME_MAP` + `EasyEcho.PlayerAlreadyHasPerk()`)
    - Finds highest-priority entry matching any offered perk (`Name::Quality` or `Name::Any`)
    - If match found → select it
-4. **All banned** — if every offered perk is on the ban list → attempt reroll
-5. **No priority match** — no offered perk matches the priority list → attempt reroll
-6. **Reroll unavailable** — pick the left-most non-banned option as final fallback
+4. **Auto-banish commons** — if banish tokens remain, banish common-quality choices (unless on priority list)
+5. **Auto-banish from banish list** — if banish tokens remain, banish choices on the user's banish list
+6. **All banned** — if every offered perk is on the ban list → banish if tokens available, otherwise attempt reroll
+7. **No priority match** — no offered perk matches → attempt reroll (only if no banish tokens remain)
+8. **Reroll unavailable** — pick the left-most non-banned option as final fallback
+
+All API calls (`SelectPerk`, `RequestReroll`, `BanishPerk`) check return values — if the server rejects (operation already in flight), the engine retries on the next tick via `START_DELAY`.
 
 **State machine states** (picker frame `OnUpdate`):
 
@@ -101,6 +106,7 @@ The perk selection follows this decision pipeline inside `ProcessChoices()`:
 |-------|-------------|
 | `START_DELAY` | Waiting for initial render delay (`C.DELAY_TIME`) |
 | `PROCESSING` | Running the decision pipeline |
+| `WAIT_FOR_BANISH` | Waiting for banish replacement to arrive (~1.5s timeout) |
 | `WAIT_FOR_NEW_CARDS` | Detecting new offers after a reroll |
 | `LOCKED` | Waiting for server to confirm selection |
 
@@ -175,16 +181,20 @@ Code comments are a mix of English and German. Keep new comments in English.
 ### ProjectEbonhold Perk Service (`ProjectEbonhold.PerkService`)
 
 ```lua
-ProjectEbonhold.PerkService.SelectPerk(spellId)       -- Send selection to server
-ProjectEbonhold.PerkService.RequestReroll()            -- Request a reroll
+ProjectEbonhold.PerkService.SelectPerk(spellId)       -- Send selection to server; returns false if pick already in flight
+ProjectEbonhold.PerkService.RequestReroll()            -- Request a reroll; returns false if reroll already in flight
+ProjectEbonhold.PerkService.BanishPerk(perkIndex)     -- Banish a perk (0-2); returns false if banish already in flight
 ProjectEbonhold.PerkService.GetCurrentChoice()         -- Table of currently offered perk options
-ProjectEbonhold.PerkService.GetGrantedPerks()          -- Table of player's acquired perks
+ProjectEbonhold.PerkService.GetGrantedPerks()          -- Dictionary of player's acquired perks (keyed by spell name)
+ProjectEbonhold.PerkService.GetPendingRollsCount()    -- Number of pending echo rolls remaining
+ProjectEbonhold.PerkService.GetRollsDebugInfo()       -- Returns level, picksMade, rollsLeft
+ProjectEbonhold.PerkService.ResetPicksMade()          -- Reset picks counter for current character
 ```
 
 ### ProjectEbonhold Player Run Service (`ProjectEbonhold.PlayerRunService`)
 
 ```lua
-ProjectEbonhold.PlayerRunService.GetCurrentData()      -- Returns {usedRerolls, totalRerolls, ...}
+ProjectEbonhold.PlayerRunService.GetCurrentData()      -- Returns {usedRerolls, totalRerolls, remainingBanishes, catchupMultiplierPct, ...}
 ```
 
 ### WoW API Functions Used
@@ -252,7 +262,7 @@ Defined in `EasyEchoCore.lua` as `EasyEcho.ONE_TIME_ONLY_LIST` (format: `"Spell 
 
 ### Deployment
 
-Copy the `EasyEcho_Addon/` folder into the WoW client's `Interface/AddOns/EasyEcho/` directory. No build step is needed.
+Copy the `EasyEcho/` folder into the WoW client's `Interface/AddOns/EasyEcho/` directory. No build step is needed.
 
 ### Adding New Perks to the Default Priority List
 
