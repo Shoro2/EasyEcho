@@ -110,6 +110,15 @@ local function HandleReroll(pickLevel, reason)
         end
     end
 
+    -- Snapshot current choices so WAIT_FOR_NEW_CARDS can detect when they change
+    local curChoices = ProjectEbonhold and ProjectEbonhold.PerkService
+        and ProjectEbonhold.PerkService.GetCurrentChoice
+        and ProjectEbonhold.PerkService.GetCurrentChoice() or nil
+    if curChoices then
+        S.lastChoicesRef = curChoices
+    end
+    S.waitForNewCardsStart = GetTime()
+
     S.pickerFrame.state = "WAIT_FOR_NEW_CARDS"
     S.pickerFrame.timer = 0
     return true
@@ -400,8 +409,15 @@ S.pickerFrame:SetScript("OnUpdate", function(self, elapsed)
         if cur and cur ~= S.lastChoicesRef then
             S.isProcessing = false
             S.lastChoicesRef = cur
+            S.waitForNewCardsStart = nil
             self.state = "START_DELAY"
             self.timer = 0
+        elseif S.waitForNewCardsStart and (GetTime() - S.waitForNewCardsStart) > 3 then
+            S.isProcessing = false
+            S.waitForNewCardsStart = nil
+            self.state = "START_DELAY"
+            self.timer = 0
+            EasyEcho.WriteToLog("WAIT_FOR_NEW_CARDS timeout: cur=" .. tostring(cur ~= nil) .. " sameRef=" .. tostring(cur == S.lastChoicesRef))
         end
 
     elseif self.state == "LOCKED" and self.timer > 0.2 then
