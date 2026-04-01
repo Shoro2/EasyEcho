@@ -91,7 +91,7 @@ eventFrame:SetScript("OnEvent", function(_, event, arg1)
             if (lvl == 60 or lvl == 70 or lvl == 80) and EasyEcho_UI and EasyEcho_UI.GetGrantedSummary then
                 local cPrio, cEpic, cRare, _, cUncommon, cCommon = EasyEcho_UI.GetGrantedSummary()
                 local cTotal = cEpic + cRare + cUncommon + cCommon
-                local msg = string.format("[EasyEcho] Lvl %d Summary: %d Echoes (%d Epic, %d Rare, %d Uncommon, %d Common | %d Prio)",
+                local msg = string.format("[EasyEcho] Lvl %d Summary: %d Echoes (%d Epic, %d Rare, %d Uncommon, %d Common - %d Prio)",
                     lvl, cTotal, cEpic, cRare, cUncommon, cCommon, cPrio)
                 if GetNumPartyMembers and GetNumPartyMembers() > 0 then
                     SendChatMessage(msg, "PARTY")
