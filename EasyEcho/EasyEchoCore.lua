@@ -250,10 +250,17 @@ end
 -- =========================================================
 function EasyEcho_Start()
     EasyEcho_IsRunning = true
+    S.isAutoStopped = false
+    S.isProcessing = false
+    S.lastLoggedPick = -1
+    S.waitForNewCardsStart = nil
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Bot |cff00ff00STARTED|r – auto-selecting perks.")
     end
     if EasyEcho_UI and EasyEcho_UI.UpdateStartStopButton then EasyEcho_UI.UpdateStartStopButton() end
+    if EasyEcho.Engine and EasyEcho.Engine.TryRequestChoiceNow then
+        EasyEcho.Engine.TryRequestChoiceNow()
+    end
 end
 
 function EasyEcho_Stop()
