@@ -17,25 +17,92 @@ Perks.currentChoice = nil
 Perks.grantedPerks = {} 
 Perks.lockedPerks = {} 
 Perks.maximumPermanentEchoes = 0 
-Perks.pendingBanishIndex = nil -- Track which perk index is being banished 
+Perks.pendingBanishIndex = nil -- Track which perk index is being banished
+Perks.pendingRollsCount = nil -- Optional: if server sends "N|..." we use this; else we use level vs picksMade
+
+local _charKey = nil
+local function GetPerkPicksMadeCharKey()
+    if not _charKey then
+        local realm = GetNormalizedRealmName and GetNormalizedRealmName() or "Unknown"
+        local name = UnitName and UnitName("player") or "Unknown"
+        _charKey = realm .. "\t" .. name
+    end
+    return _charKey
+end
+
+local function GetPerkPicksMade()
+    ProjectEbonholdDB = ProjectEbonholdDB or {}
+    ProjectEbonholdDB.perkPicksMade = ProjectEbonholdDB.perkPicksMade or {}
+    ProjectEbonholdDB.perkLastLevel = ProjectEbonholdDB.perkLastLevel or {}
+    local key = GetPerkPicksMadeCharKey()
+    local level = UnitLevel and UnitLevel("player") or 1
+    -- Restart = back to level 1, keep nothing.
+    if level <= 1 then
+        ProjectEbonholdDB.perkPicksMade[key] = 0
+        ProjectEbonholdDB.perkLastLevel[key] = 1
+        return 0
+    end
+    -- Level dropped (respawn at 1 then leveled to 4 without us ever seeing level 1): new run, reset picks.
+    local lastLevel = ProjectEbonholdDB.perkLastLevel[key] or 0
+    if level < lastLevel then
+        ProjectEbonholdDB.perkPicksMade[key] = 0
+    end
+    ProjectEbonholdDB.perkLastLevel[key] = level
+    return ProjectEbonholdDB.perkPicksMade[key] or 0
+end
+
+-- Level for "rolls left": use UnitLevel("player") so it matches the level on your character sheet.
+local function GetPerkLevel()
+    local live = UnitLevel and UnitLevel("player")
+    if live and live > 0 then return live end
+    return 1
+end
+
+local function IncrementPerkPicksMade()
+    local level = UnitLevel and UnitLevel("player") or 1
+    if level <= 1 then return end  -- don't count when level 1
+    ProjectEbonholdDB = ProjectEbonholdDB or {}
+    ProjectEbonholdDB.perkPicksMade = ProjectEbonholdDB.perkPicksMade or {}
+    local key = GetPerkPicksMadeCharKey()
+    ProjectEbonholdDB.perkPicksMade[key] = GetPerkPicksMade() + 1
+end
+
+local function ResetPicksMade()
+    ProjectEbonholdDB = ProjectEbonholdDB or {}
+    ProjectEbonholdDB.perkPicksMade = ProjectEbonholdDB.perkPicksMade or {}
+    local key = GetPerkPicksMadeCharKey()
+    ProjectEbonholdDB.perkPicksMade[key] = 0
+end 
 
 ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_CHOICE,
                                 function(body)
+    Perks.pendingReroll = nil -- new offer arrived, unblock rerolls
 
     if not body or body == "" then
-        
         Perks.currentChoice = nil
-        
+        Perks.pendingRollsCount = nil
         if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.Hide then
             ProjectEbonhold.PerkUI.Hide()
         end
         return
     end
 
-    
+    -- Optional: server can send "N|spellId,q;..." to indicate N pending rolls (including this one)
+    local bodyToParse = body
+    local n, rest = body:match("^(%d+)|(.+)$")
+    if n and rest then
+        local num = tonumber(n)
+        if num and num > 0 then
+            Perks.pendingRollsCount = num
+            bodyToParse = rest
+        end
+    else
+        Perks.pendingRollsCount = nil  -- no server count: use level-based so (1) doesn't stick
+    end
+
     local choices = {}
     local count = 0
-    for perkPair in string.gmatch(body, "([^;]+)") do
+    for perkPair in string.gmatch(bodyToParse, "([^;]+)") do
         local spellIdStr, qualityStr = perkPair:match("^([^,]+),([^,]+)$")
         if spellIdStr and qualityStr then
             local spellId = tonumber(spellIdStr)
@@ -56,8 +123,6 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_CHOICE,
     Perks.currentChoice = choices
     table.remove(choices)
 
-    
-    
     if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.Show then
         ProjectEbonhold.PerkUI.Show(choices)
     else
@@ -81,12 +146,13 @@ end)
 ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_SELECTION_RESULT,
                                 function(body)
     -- -- print("[DEBUG] Received SEND_PLAYER_PERK_SELECTION_RESULT with body: " .. tostring(body))
+    Perks.pendingSelectSpellId = nil -- selection resolved, unblock picks
     -- Selection succeeded
     if body == "1" then
         -- -- print("[DEBUG] Perk selection succeeded")
-        -- Hide selection UI 
         Perks.currentChoice = nil
-        
+        IncrementPerkPicksMade()
+
         if ProjectEbonhold.PerkUI and ProjectEbonhold.PerkUI.Hide then
             ProjectEbonhold.PerkUI.Hide()
         end
@@ -112,7 +178,12 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_GRANTED,
     Perks.grantedPerks = {}
     Perks.lockedPerks = {}
 
-    if not body or body == "" then return end
+    if not body or body == "" then
+        if ProjectEbonhold and ProjectEbonhold.PlayerRunUI and ProjectEbonhold.PlayerRunUI.UpdateGrantedPerks then
+            ProjectEbonhold.PlayerRunUI.UpdateGrantedPerks()
+        end
+        return
+    end
 
     
     local parts = {}
@@ -120,7 +191,12 @@ ProjectEbonhold.onEventReceived(ProjectEbonhold.SS.SEND_PLAYER_PERK_GRANTED,
         table.insert(parts, part)
     end
 
-    if #parts == 0 then return end
+    if #parts == 0 then
+        if ProjectEbonhold and ProjectEbonhold.PlayerRunUI and ProjectEbonhold.PlayerRunUI.UpdateGrantedPerks then
+            ProjectEbonhold.PlayerRunUI.UpdateGrantedPerks()
+        end
+        return
+    end
 
     
     local maxSlotsStr = parts[1]
@@ -292,6 +368,7 @@ end
 
 function Perks.SelectPerk(spellId)
     -- -- print("[DEBUG] Perks.SelectPerk called with spellId: " .. tostring(spellId))
+    if Perks.pendingSelectSpellId then return false end -- pick already in flight
     if not spellId or spellId == 0 then 
         -- -- print("[DEBUG] SelectPerk: Invalid spellId")
         return false 
@@ -317,6 +394,7 @@ function Perks.SelectPerk(spellId)
     end
     
     -- -- print("[DEBUG] SelectPerk: Sending to server - REQUEST_PLAYER_PERK_SELECTION with spellId: " .. tostring(spellId))
+    Perks.pendingSelectSpellId = spellId
     ProjectEbonhold.sendToServer(ProjectEbonhold.CS.REQUEST_PLAYER_PERK_SELECTION, tostring(spellId))
     return true
 end
@@ -329,12 +407,16 @@ end
 
 
 function Perks.RequestReroll()
+    if Perks.pendingReroll then return false end -- reroll already in flight
+    Perks.pendingReroll = true
     ProjectEbonhold.sendToServer(ProjectEbonhold.CS.REQUEST_REROLL, "")
+    return true
 end
 
 
 function Perks.BanishPerk(perkIndex)
     -- -- print("[DEBUG] Perks.BanishPerk called with perkIndex: " .. tostring(perkIndex))
+    if Perks.pendingBanishIndex then return false end -- banish already in flight
     if not perkIndex or perkIndex < 0 or perkIndex > 2 then 
         -- -- print("[DEBUG] BanishPerk: Invalid perkIndex")
         return false 
@@ -380,6 +462,24 @@ ProjectEbonhold.PerkService.BanishPerk = Perks.BanishPerk
 ProjectEbonhold.PerkService.GetCurrentChoice = function()
     return Perks.currentChoice
 end
+-- Rolls left = (level - 1) - picksMade. Level = value from PLAYER_LEVEL_UP (stored) or UnitLevel.
+ProjectEbonhold.PerkService.GetPendingRollsCount = function()
+    local level = GetPerkLevel()
+    local rollsOffered = math.min(80, math.max(0, level - 1))
+    local picksMade = GetPerkPicksMade()
+    -- Cap picks at (level - 1) so bad saved data never gives negative rolls
+    picksMade = math.min(picksMade, rollsOffered)
+    return math.max(0, rollsOffered - picksMade)
+end
+-- For tooltip: level, picks made (capped), rolls left
+ProjectEbonhold.PerkService.GetRollsDebugInfo = function()
+    local level = GetPerkLevel()
+    local rollsOffered = math.min(80, math.max(0, level - 1))
+    local picksMade = math.min(GetPerkPicksMade(), rollsOffered)
+    local rollsLeft = math.max(0, rollsOffered - picksMade)
+    return level, picksMade, rollsLeft
+end
+ProjectEbonhold.PerkService.ResetPicksMade = ResetPicksMade
 ProjectEbonhold.PerkService.GetGrantedPerks = function()
     return Perks.grantedPerks
 end

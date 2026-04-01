@@ -174,7 +174,7 @@ local function CheckIntensityThresholds(oldValue, newValue)
         { level = 2, value = ProjectEbonhold.Constants.INTENSITY_LEVEL_2, name = "Intensity Level 2" },
         { level = 3, value = ProjectEbonhold.Constants.INTENSITY_LEVEL_3, name = "Intensity Level 3" },
         { level = 4, value = ProjectEbonhold.Constants.INTENSITY_LEVEL_4, name = "Intensity Level 4" },
-        { level = 5, value = ProjectEbonhold.Constants.INTENSITY_LEVEL_5, name = "Intensity Level 5" }
+        { level = 5, value = ProjectEbonhold.Constants.INTENSITY_LEVEL_5, name = "Intensity Level 5" },
     }
 
     for _, threshold in ipairs(thresholds) do
@@ -290,11 +290,57 @@ end
 
 
 local function ParsePlayerRunData(body)
+    -- print("[DEBUG] ParsePlayerRunData called with body: " .. tostring(body))
+    
+    local catchupMultiplierPct
+
+    -- Try new format first (16 fields including catch-up multiplier)
     local soulPoints, soulPointsMax, acceptedRezs, acceptedRezsMax,
     countCanSelfRezs, selfRezsMax, classRezs, classRezsMax,
     avoidedFatalAttacks, avoidedFatalAttacksMax, nbResetAvoided,
-    costNextReset, usedRerolls, totalRerolls = body:match(
-        "^([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+)$")
+    costNextReset, usedRerolls, totalRerolls, remainingBanishes = body:match(
+        "^([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+)$")
+
+    if soulPoints and soulPointsMax and acceptedRezs and acceptedRezsMax and
+        countCanSelfRezs and selfRezsMax and classRezs and classRezsMax and
+        avoidedFatalAttacks and avoidedFatalAttacksMax and nbResetAvoided and
+        costNextReset and usedRerolls and totalRerolls and remainingBanishes then
+        -- 16-field format: last capture is catchupMultiplierPct, second-to-last is remainingBanishes
+        -- re-parse explicitly since the 16-field pattern shifted the variable
+        soulPoints, soulPointsMax, acceptedRezs, acceptedRezsMax,
+        countCanSelfRezs, selfRezsMax, classRezs, classRezsMax,
+        avoidedFatalAttacks, avoidedFatalAttacksMax, nbResetAvoided,
+        costNextReset, usedRerolls, totalRerolls, remainingBanishes, catchupMultiplierPct = body:match(
+            "^([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+)$")
+    else
+        -- Try 15-field format (banishes but no catch-up)
+        soulPoints, soulPointsMax, acceptedRezs, acceptedRezsMax,
+        countCanSelfRezs, selfRezsMax, classRezs, classRezsMax,
+        avoidedFatalAttacks, avoidedFatalAttacksMax, nbResetAvoided,
+        costNextReset, usedRerolls, totalRerolls, remainingBanishes = body:match(
+            "^([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+)$")
+
+        if soulPoints and remainingBanishes then
+            catchupMultiplierPct = "0"
+        else
+            -- Try 14-field format for backward compatibility
+            soulPoints, soulPointsMax, acceptedRezs, acceptedRezsMax,
+            countCanSelfRezs, selfRezsMax, classRezs, classRezsMax,
+            avoidedFatalAttacks, avoidedFatalAttacksMax, nbResetAvoided,
+            costNextReset, usedRerolls, totalRerolls = body:match(
+                "^([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+);([^;]+)$")
+
+            if soulPoints and soulPointsMax and acceptedRezs and acceptedRezsMax and
+                countCanSelfRezs and selfRezsMax and classRezs and classRezsMax and
+                avoidedFatalAttacks and avoidedFatalAttacksMax and nbResetAvoided and
+                costNextReset and usedRerolls and totalRerolls then
+                remainingBanishes = "1"
+                catchupMultiplierPct = "0"
+            else
+                return
+            end
+        end
+    end
 
     if soulPoints and soulPointsMax and acceptedRezs and acceptedRezsMax and
         countCanSelfRezs and selfRezsMax and classRezs and classRezsMax and
@@ -320,7 +366,9 @@ local function ParsePlayerRunData(body)
             nbResetAvoided = tonumber(nbResetAvoided) or 0,
             costNextReset = tonumber(costNextReset) or 0,
             usedRerolls = tonumber(usedRerolls) or 0,
-            totalRerolls = tonumber(totalRerolls) or 0
+            totalRerolls = tonumber(totalRerolls) or 0,
+            remainingBanishes = tonumber(remainingBanishes) or 0,
+            catchupMultiplierPct = tonumber(catchupMultiplierPct) or 0
         }
 
 
@@ -338,6 +386,7 @@ local function ParsePlayerRunData(body)
 
 
         _G["EbonholdPlayerRunData"] = currentRunData
+        -- print("[DEBUG] ParsePlayerRunData: Updated global EbonholdPlayerRunData with remainingBanishes: " .. tostring(currentRunData.remainingBanishes))
 
 
         if ProjectEbonhold and ProjectEbonhold.PlayerRunUI and
@@ -350,6 +399,13 @@ local function ParsePlayerRunData(body)
             ProjectEbonhold.DeathFrame.UpdateData then
             ProjectEbonhold.DeathFrame.UpdateData(currentRunData)
         end
+        
+        -- Refresh banish UI text if perk selection is visible
+        if ProjectEbonhold and ProjectEbonhold.PerkUI and
+            ProjectEbonhold.PerkUI.RefreshBanishText then
+            ProjectEbonhold.PerkUI.RefreshBanishText()
+        end
+        
         return true
     else
         return false

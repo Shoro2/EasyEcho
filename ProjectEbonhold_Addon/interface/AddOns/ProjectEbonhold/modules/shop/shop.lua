@@ -586,6 +586,9 @@ ModernShopPreviewFrame.rotationSpeed = 0 -- starts at 0
 ModernShopPreviewFrame.rotationTimer = 0 -- used to increase speed
 
 ModernShopPreviewFrame:SetScript("OnUpdate", function(self, elapsed)
+    if ProjectEbonhold_IsClosing then return end
+    if not UIParent:IsShown() then return end
+    elapsed = math.min(elapsed, 0.1) -- Cap elapsed to prevent freeze after alt-tab
     if self.isRotatingLeft or self.isRotatingRight then
         self.rotationTimer = self.rotationTimer + elapsed
 
@@ -665,6 +668,8 @@ model:SetScript("OnMouseUp", function(self, button)
 end)
 
 model:SetScript("OnUpdate", function(self)
+    if ProjectEbonhold_IsClosing then return end
+    if not UIParent:IsShown() then return end
     if self.isDragging then
         local x = GetCursorPosition()
         local dx = x - self.lastX
@@ -839,6 +844,9 @@ function ModernShop_LoadEntriesTab(categoryID, subcategoryID)
             frame.rotationTimer = 0 -- used to increase speed
 
             frame:SetScript("OnUpdate", function(self, elapsed)
+                if ProjectEbonhold_IsClosing then return end
+                if not UIParent:IsShown() then return end
+                elapsed = math.min(elapsed, 0.1) -- Cap elapsed to prevent freeze after alt-tab
                 if self.isRotatingLeft or self.isRotatingRight then
                     self.rotationTimer = self.rotationTimer + elapsed
 
@@ -1432,6 +1440,8 @@ function ModernShop_ShowToast(entry)
     -- Setup fade timer
     ModernShopToastFrame.fadeTime = GetTime() + 3 -- show for 3 seconds
     ModernShopToastFrame:SetScript("OnUpdate", function(self)
+        if ProjectEbonhold_IsClosing then self:SetScript("OnUpdate", nil) return end
+        if not UIParent:IsShown() then return end
         if GetTime() >= self.fadeTime then
             local alpha = self:GetAlpha()
             if alpha > 0 then
