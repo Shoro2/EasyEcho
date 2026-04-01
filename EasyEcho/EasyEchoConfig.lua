@@ -89,6 +89,7 @@ function EasyEcho_Config.Refresh()
     if currentView == "Prio" then list = EasyEchoSettings.PriorityList
     elseif currentView == "Ban" then list = EasyEchoSettings.BanList
     elseif currentView == "Banish" then list = EasyEchoSettings.BanishList or {}
+    elseif currentView == "Family" then list = EasyEchoSettings.FamilyPriority or {}
     elseif currentView == "Profiles" then
         for name, _ in pairs(EasyEchoSettings.Profiles) do table.insert(list, name) end
         table.sort(list)
@@ -141,15 +142,24 @@ function EasyEcho_Config.Refresh()
                 row:SetScript("OnEnter", function(self)
                     if not self.tooltipData then return end
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                    GameTooltip:ClearLines()
-                    GameTooltip:AddLine(self.tooltipData.name or "")
-                    if self.tooltipData.desc and self.tooltipData.desc ~= "" then
-                        GameTooltip:AddLine(self.tooltipData.desc, 1, 0.82, 0, true)
+                    if self.tooltipData.spellId then
+                        GameTooltip:SetSpellByID(self.tooltipData.spellId)
+                        if self.tooltipData.status then
+                            GameTooltip:AddLine(" ")
+                            GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
+                        end
+                        GameTooltip:Show()
+                    else
+                        GameTooltip:ClearLines()
+                        GameTooltip:AddLine(self.tooltipData.name or "")
+                        if self.tooltipData.desc and self.tooltipData.desc ~= "" then
+                            GameTooltip:AddLine(self.tooltipData.desc, 1, 0.82, 0, true)
+                        end
+                        if self.tooltipData.status then
+                            GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
+                        end
+                        GameTooltip:Show()
                     end
-                    if self.tooltipData.status then
-                        GameTooltip:AddLine(self.tooltipData.status, 0.5, 0.5, 0.5)
-                    end
-                    GameTooltip:Show()
                 end)
                 row:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 rows[displayCount] = row
@@ -158,7 +168,32 @@ function EasyEcho_Config.Refresh()
             -- Always sync row width to current scrollChild width (adapts after resize)
             row:SetWidth(scrollChild:GetWidth())
 
-            if currentView == "Profiles" then
+            if currentView == "Family" then
+                row.prio:SetText(string.format("%02d.", i))
+                row.prio:Show()
+                if row.prioBtn then row.prioBtn:Hide() end
+                if row.prioEdit then row.prioEdit:Hide() end
+                -- Family icon based on name
+                local famIcons = {
+                    ["Melee DPS"] = "Interface\\Icons\\Ability_Warrior_Bladestorm",
+                    ["Ranged DPS"] = "Interface\\Icons\\Ability_Hunter_SteadyShot",
+                    ["Caster DPS"] = "Interface\\Icons\\Spell_Fire_FlameBolt",
+                    ["Tank"] = "Interface\\Icons\\Ability_Defend",
+                    ["Healer"] = "Interface\\Icons\\Spell_Holy_FlashHeal",
+                    ["Survivability"] = "Interface\\Icons\\Spell_Holy_SealOfSacrifice",
+                }
+                row.icon:SetTexture(famIcons[entry] or "Interface\\Icons\\INV_Misc_QuestionMark")
+                row.name:SetText(entry)
+                row.quality:SetText("Family")
+                row.quality:SetTextColor(0.8, 0.8, 0.2)
+                row.tooltipData = { name = entry, desc = "Family priority #" .. i .. "\nUsed as fallback when no priority match and no reroll available." }
+                row.up:SetText("Up") row.up:Show()
+                row.down:SetText("Down") row.down:Show()
+                row.up:SetScript("OnClick", function() if i > 1 then table.insert(list, i-1, table.remove(list, i)) EasyEcho_Config.Refresh() end end)
+                row.down:SetScript("OnClick", function() if i < #list then table.insert(list, i+1, table.remove(list, i)) EasyEcho_Config.Refresh() end end)
+                row.del:Enable()
+                row.del:SetScript("OnClick", function() table.remove(list, i) EasyEcho_Config.Refresh() end)
+            elseif currentView == "Profiles" then
                 row.prio:SetText("")
                 if row.prioBtn then row.prioBtn:Hide() end
                 if row.prioEdit then row.prioEdit:Hide() end
@@ -170,13 +205,33 @@ function EasyEcho_Config.Refresh()
                 row.up:SetScript("OnClick", function() EasyEcho_SwitchProfile(entry) end)
                 row.down:SetText("Save") row.down:Show()
                 row.down:SetScript("OnClick", function()
-                    EasyEchoSettings.Profiles[entry].PriorityList = { unpack(EasyEchoSettings.PriorityList) }
-                    EasyEchoSettings.Profiles[entry].BanList      = { unpack(EasyEchoSettings.BanList) }
-                    EasyEchoSettings.Profiles[entry].BanishList   = { unpack(EasyEchoSettings.BanishList or {}) }
+                    EasyEchoSettings.Profiles[entry].PriorityList  = { unpack(EasyEchoSettings.PriorityList) }
+                    EasyEchoSettings.Profiles[entry].BanList       = { unpack(EasyEchoSettings.BanList) }
+                    EasyEchoSettings.Profiles[entry].BanishList    = { unpack(EasyEchoSettings.BanishList or {}) }
+                    EasyEchoSettings.Profiles[entry].FamilyPriority = { unpack(EasyEchoSettings.FamilyPriority or {}) }
                     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. entry .. "' saved.")
                 end)
                 -- FIX: Enable/Disable instead of SetEnabled
-                if entry ~= "Default" then row.del:Enable() else row.del:Disable() end
+                if entry ~= "Default" and entry ~= EasyEchoSettings.ActiveProfile then
+                    row.del:Enable()
+                    row.del:SetScript("OnClick", function()
+                        EasyEchoSettings.Profiles[entry] = nil
+                        -- Clear character profile references pointing to deleted profile
+                        if EasyEchoSettings.CharacterProfiles then
+                            for charKey, profName in pairs(EasyEchoSettings.CharacterProfiles) do
+                                if profName == entry then
+                                    EasyEchoSettings.CharacterProfiles[charKey] = nil
+                                end
+                            end
+                        end
+                        if DEFAULT_CHAT_FRAME then
+                            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Profile '" .. entry .. "' deleted.")
+                        end
+                        EasyEcho_Config.Refresh()
+                    end)
+                else
+                    row.del:Disable()
+                end
             else
                 local sName, sQual = entry:match("^(.-)::(.+)$")
                 sName, sQual = sName or entry, sQual or "Any"
@@ -188,6 +243,7 @@ function EasyEcho_Config.Refresh()
                 -- Look up icon from PerkDatabase via GetSpellInfo
                 local perkIcon = "Interface\\Icons\\INV_Misc_QuestionMark"
                 local tooltipDesc = ""
+                local matchedSpellId = nil
                 if ProjectEbonhold and ProjectEbonhold.PerkDatabase then
                     -- Find matching perk by name (any quality)
                     local searchLower = string.lower(sName)
@@ -196,6 +252,7 @@ function EasyEcho_Config.Refresh()
                         if perkName and string.lower(perkName) == searchLower then
                             local _, _, spIcon = GetSpellInfo(perkSpellId)
                             if spIcon then perkIcon = spIcon end
+                            matchedSpellId = perkSpellId
                             break
                         end
                     end
@@ -209,7 +266,7 @@ function EasyEcho_Config.Refresh()
                 else
                     tooltipStatus = "Priority #" .. i .. " (" .. sQual .. ")"
                 end
-                row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus }
+                row.tooltipData = { name = sName, desc = tooltipDesc, status = tooltipStatus, spellId = matchedSpellId }
 
                 row.up:SetText("Up") row.down:SetText("Down")
                 if currentView == "Ban" then
@@ -268,7 +325,7 @@ function EasyEcho_Config.Refresh()
     scrollChild:SetHeight(displayCount * 26)
 
     if EasyEchoAddPrio then
-        if currentView == "Profiles" then
+        if currentView == "Profiles" or currentView == "Family" then
             EasyEchoAddPrio:Hide()
             UIDropDownMenu_DisableDropDown(EasyEchoConfigQualityDropDown)
         else
@@ -547,8 +604,11 @@ function EasyEcho_Config.CreateFrame()
     local banishTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     banishTab:SetSize(110, 25) banishTab:SetPoint("LEFT", bTab, "RIGHT", 5, 0) banishTab:SetText("Banish List")
     banishTab:SetScript("OnClick", function() currentView = "Banish" EasyEcho_Config.Refresh() end)
+    local famTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    famTab:SetSize(90, 25) famTab:SetPoint("LEFT", banishTab, "RIGHT", 5, 0) famTab:SetText("Family")
+    famTab:SetScript("OnClick", function() currentView = "Family" EasyEcho_Config.Refresh() end)
     local prTab = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    prTab:SetSize(110, 25) prTab:SetPoint("LEFT", banishTab, "RIGHT", 5, 0) prTab:SetText("Profiles")
+    prTab:SetSize(110, 25) prTab:SetPoint("LEFT", famTab, "RIGHT", 5, 0) prTab:SetText("Profiles")
     prTab:SetScript("OnClick", function() currentView = "Profiles" EasyEcho_Config.Refresh() end)
 
     -- Search box: second row, left-aligned
@@ -575,7 +635,41 @@ function EasyEcho_Config.CreateFrame()
     -- Add New Section
     local addName = CreateFrame("EditBox", "EasyEchoAddName", f, "InputBoxTemplate")
     addName:SetSize(180, 20) addName:SetPoint("BOTTOMLEFT", 65, 75)
-    addName:SetScript("OnTextChanged", function(s) if currentView ~= "Profiles" then UpdateSuggestions(s) end end)
+    addName:SetScript("OnTextChanged", function(s)
+        if currentView == "Profiles" then return end
+        if currentView == "Family" then
+            -- Show family name suggestions
+            local text = s:GetText()
+            if not suggestionFrame then return end
+            if text == "" or #text < 1 then suggestionFrame:Hide() return end
+            local matches = {}
+            local textLower = string.lower(text)
+            local famList = EasyEchoSettings and EasyEchoSettings.FamilyPriority or {}
+            for _, fam in ipairs(EasyEcho.ALL_FAMILIES) do
+                if string.lower(fam):find(textLower, 1, true) then
+                    local already = false
+                    for _, existing in ipairs(famList) do
+                        if string.lower(existing) == string.lower(fam) then already = true; break end
+                    end
+                    if not already then table.insert(matches, fam) end
+                end
+            end
+            if #matches > 0 then
+                suggestionFrame:SetPoint("BOTTOMLEFT", s, "TOPLEFT", 0, 5)
+                suggestionFrame:Show()
+                for si, btn in ipairs(suggestionButtons) do
+                    if matches[si] then
+                        btn:SetText(matches[si])
+                        btn:SetScript("OnClick", function() s:SetText(matches[si]) suggestionFrame:Hide() end)
+                        btn:Show()
+                    else btn:Hide() end
+                end
+                suggestionFrame:SetHeight(#matches * 22 + 10)
+            else suggestionFrame:Hide() end
+        else
+            UpdateSuggestions(s)
+        end
+    end)
     local addPrio = CreateFrame("EditBox", "EasyEchoAddPrio", f, "InputBoxTemplate")
     addPrio:SetSize(30, 20) addPrio:SetPoint("BOTTOMLEFT", 25, 75) addPrio:SetNumeric(true)
     local addQualDrop = CreateFrame("Frame", "EasyEchoConfigQualityDropDown", f, "UIDropDownMenuTemplate")
@@ -596,7 +690,30 @@ function EasyEcho_Config.CreateFrame()
                 PriorityList = { unpack(EasyEchoSettings.PriorityList) },
                 BanList      = { unpack(EasyEchoSettings.BanList) },
                 BanishList   = { unpack(EasyEchoSettings.BanishList or {}) },
+                FamilyPriority = { unpack(EasyEchoSettings.FamilyPriority or {}) },
             }
+        elseif currentView == "Family" then
+            -- Add family if it's a valid family name and not already in list
+            local famList = EasyEchoSettings.FamilyPriority
+            if not famList then famList = {} EasyEchoSettings.FamilyPriority = famList end
+            local nLower = string.lower(n)
+            local valid = false
+            for _, fam in ipairs(EasyEcho.ALL_FAMILIES) do
+                if string.lower(fam) == nLower then n = fam; valid = true; break end
+            end
+            if valid then
+                local exists = false
+                for _, fam in ipairs(famList) do
+                    if string.lower(fam) == nLower then exists = true; break end
+                end
+                if not exists then
+                    table.insert(famList, n)
+                end
+            else
+                if DEFAULT_CHAT_FRAME then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[EasyEcho]|r Unknown family: " .. n .. ". Valid: " .. table.concat(EasyEcho.ALL_FAMILIES, ", "))
+                end
+            end
         else
             local clean = n:gsub("[^%a%s'%-]", "")
             if currentView == "Prio" then
